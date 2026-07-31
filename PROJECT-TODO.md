@@ -179,6 +179,8 @@ Last updated: 31 July 2026, after scraper, dashboard, and browser QA.
   checks skipped), and the dashboard production build plus 2/2 rendered checks
   passed. The final staged-content scan found no prohibited assistant-brand
   references or credentials.
+- [x] Repair the Windows local-app launcher so it starts the dashboard command
+  through a Windows shell; this prevents the `spawn EINVAL` startup failure.
 
 ## Deliberate non-goals
 

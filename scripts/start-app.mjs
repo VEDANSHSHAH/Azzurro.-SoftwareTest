@@ -14,6 +14,7 @@ const children = [
   }),
   spawn(npmCommand, ["run", "dev"], {
     cwd: resolve(projectRoot, "dashboard"),
+    shell: process.platform === "win32",
     stdio: "inherit",
     env: {
       ...process.env,
