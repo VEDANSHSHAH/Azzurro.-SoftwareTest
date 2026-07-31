@@ -1,0 +1,50 @@
+[
+  {
+    "key": "olympic_paddington",
+    "businessName": "Olympic Paddington",
+    "bookingName": "Olympic Paddington Budget Hotel - across Allianz Stadium",
+    "hotelId": 16211291,
+    "canonicalUrl": "https://www.booking.com/hotel/au/olympic-paddington.html",
+    "hotelScore": 8.8,
+    "visibleReviewCount": 12,
+    "countryCode": "au",
+    "ufi": -1603135,
+    "timeZone": "Australia/Sydney"
+  },
+  {
+    "key": "potts_point",
+    "businessName": "Potts Point",
+    "bookingName": "Potts Point Budget Stay - Near Kings Cross Station - Self Check-in",
+    "hotelId": 9491412,
+    "canonicalUrl": "https://www.booking.com/hotel/au/venus-potts-point-sydney.html",
+    "hotelScore": 6.7,
+    "visibleReviewCount": 2516,
+    "countryCode": "au",
+    "ufi": -1603135,
+    "timeZone": "Australia/Sydney"
+  },
+  {
+    "key": "central_sydney",
+    "businessName": "Central Sydney",
+    "bookingName": "Central Sydney Budget Stay - Near Central Station",
+    "hotelId": 9888182,
+    "canonicalUrl": "https://www.booking.com/hotel/au/venus-surry-hills.html",
+    "hotelScore": 6.9,
+    "visibleReviewCount": 2537,
+    "countryCode": "au",
+    "ufi": -1603135,
+    "timeZone": "Australia/Sydney"
+  },
+  {
+    "key": "darling_harbour",
+    "businessName": "Darling Harbour",
+    "bookingName": "Darling Harbour Hostel - Near ICC",
+    "hotelId": 10753881,
+    "canonicalUrl": "https://www.booking.com/hotel/au/chateau-de-venus.html",
+    "hotelScore": 6.9,
+    "visibleReviewCount": 4248,
+    "countryCode": "au",
+    "ufi": -1603135,
+    "timeZone": "Australia/Sydney"
+  }
+]

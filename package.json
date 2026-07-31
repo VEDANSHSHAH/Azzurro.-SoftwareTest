@@ -1,0 +1,31 @@
+{
+  "name": "azzurro-booking-scraper-validation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Accuracy-first Booking.com review collector for the four Azzurro trial properties.",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:coverage": "node --experimental-test-coverage --test",
+    "scrape": "node scripts/scrape.mjs",
+    "refresh:reviews": "node scripts/scrape.mjs --mode full",
+    "canary": "node scripts/scrape.mjs --mode canary",
+    "export:sample": "node scripts/export-data.mjs",
+    "export:all": "node scripts/export-data.mjs --all",
+    "audit:export": "node scripts/audit-export.mjs",
+    "add-property": "node scripts/add-property.mjs",
+    "dashboard:api": "node scripts/dashboard-server.mjs",
+    "dashboard:dev": "npm run dev --prefix dashboard",
+    "dashboard:build": "npm run build --prefix dashboard",
+    "app": "node scripts/start-app.mjs",
+    "package:release": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package-release.ps1",
+    "validate:http": "node scripts/validate-http.mjs",
+    "validate:bootstrap": "node scripts/validate-bootstrapped-http.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "playwright": "1.61.1"
+  }
+}

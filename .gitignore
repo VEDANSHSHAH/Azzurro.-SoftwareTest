@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+data/
+exports/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.har
+*.log
+*.tsbuildinfo
+.wrangler/
+.env
+.env.*
+!.env.example

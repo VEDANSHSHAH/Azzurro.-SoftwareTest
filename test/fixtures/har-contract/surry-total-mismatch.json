@@ -1,0 +1,92 @@
+{
+  "fixtureVersion": 1,
+  "propertyKey": "surry_total_mismatch_fixture",
+  "request": {
+    "operationName": "ReviewList",
+    "variables": {
+      "input": {
+        "skip": 0,
+        "limit": 10,
+        "sorter": "NEWEST_FIRST",
+        "filters": {
+          "text": ""
+        }
+      }
+    }
+  },
+  "response": {
+    "data": {
+      "reviewListFrontend": {
+        "__typename": "ReviewListFrontendResult",
+        "reviewsCount": 2194,
+        "reviewCard": [
+          {
+            "__typename": "ReviewCard",
+            "reviewUrl": "synthetic-review-001",
+            "reviewedDate": 1704067200,
+            "reviewScore": 7,
+            "guestDetails": null,
+            "bookingDetails": null,
+            "isTranslatable": false,
+            "helpfulVotesCount": null,
+            "textDetails": null,
+            "isApproved": true,
+            "partnerReply": null,
+            "positiveHighlights": null,
+            "negativeHighlights": null,
+            "editUrl": null,
+            "photos": null
+          }
+        ],
+        "ratingScores": [],
+        "topicFilters": [],
+        "reviewScoreFilter": [
+          {
+            "__typename": "ReviewScoreFilter",
+            "name": "All",
+            "value": "ALL",
+            "count": 2195
+          }
+        ],
+        "languageFilter": [
+          {
+            "__typename": "LanguageFilter",
+            "name": "All languages",
+            "value": "",
+            "count": 2195,
+            "countryFlag": null
+          }
+        ],
+        "timeOfYearFilter": [
+          {
+            "__typename": "TimeOfYearFilter",
+            "name": "All",
+            "value": "ALL",
+            "count": 2195
+          }
+        ],
+        "customerTypeFilter": [
+          {
+            "__typename": "CustomerTypeFilter",
+            "name": "All",
+            "value": "ALL",
+            "count": 2195
+          }
+        ],
+        "roomTypeFilter": null,
+        "sorters": [
+          {
+            "__typename": "ReviewSorter",
+            "name": "Newest first",
+            "value": "NEWEST_FIRST"
+          },
+          {
+            "__typename": "ReviewSorter",
+            "name": "Oldest first",
+            "value": "OLDEST_FIRST"
+          }
+        ]
+      }
+    }
+  }
+}

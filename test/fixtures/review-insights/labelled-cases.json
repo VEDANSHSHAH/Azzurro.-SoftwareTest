@@ -1,0 +1,395 @@
+[
+  {
+    "id": "cleanliness-positive",
+    "input": {
+      "score": 9,
+      "positiveText": "The whole property was spotless and tidy.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "cleanliness": "positive"
+    }
+  },
+  {
+    "id": "cleanliness-negative",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "It was dirty, dusty and stained."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "cleanliness": "negative"
+    }
+  },
+  {
+    "id": "check-in-positive",
+    "input": {
+      "score": 8.5,
+      "positiveText": "Smooth check-in and clear instructions.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "check_in": "positive"
+    }
+  },
+  {
+    "id": "check-in-negative",
+    "input": {
+      "score": 6,
+      "positiveText": null,
+      "negativeText": "Check-in was confusing and the key code did not work."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "check_in": "negative"
+    }
+  },
+  {
+    "id": "staff-positive",
+    "input": {
+      "score": 9,
+      "positiveText": "Friendly receptionist and helpful staff.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "staff_reception": "positive"
+    }
+  },
+  {
+    "id": "staff-negative",
+    "input": {
+      "score": 4,
+      "positiveText": null,
+      "negativeText": "The receptionist was rude and the staff were unhelpful."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "staff_reception": "negative"
+    }
+  },
+  {
+    "id": "noise-positive",
+    "input": {
+      "score": 8.5,
+      "positiveText": "It was quiet and peaceful at night.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "noise": "positive"
+    }
+  },
+  {
+    "id": "noise-negative",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "Street noise was loud all night."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "noise": "negative"
+    }
+  },
+  {
+    "id": "facilities-positive",
+    "input": {
+      "score": 9,
+      "positiveText": "Fast Wi-Fi and a well-equipped kitchen.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "facilities": "positive"
+    }
+  },
+  {
+    "id": "facilities-negative",
+    "input": {
+      "score": 4,
+      "positiveText": null,
+      "negativeText": "No hot water and the lift was broken."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "facilities": "negative"
+    }
+  },
+  {
+    "id": "location-positive",
+    "input": {
+      "score": 8.5,
+      "positiveText": "Great location and walking distance to the station.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "location": "positive"
+    }
+  },
+  {
+    "id": "location-negative",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "The location felt unsafe and it was far from everything."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "location": "negative"
+    }
+  },
+  {
+    "id": "room-condition-positive",
+    "input": {
+      "score": 9,
+      "positiveText": "Spacious room and comfortable bed.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "room_condition": "positive"
+    }
+  },
+  {
+    "id": "room-condition-negative",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "Cramped room with an uncomfortable mattress."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "room_condition": "negative"
+    }
+  },
+  {
+    "id": "value-positive",
+    "input": {
+      "score": 8,
+      "positiveText": "Good value for money and reasonably priced.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "value_for_money": "positive"
+    }
+  },
+  {
+    "id": "value-negative",
+    "input": {
+      "score": 4,
+      "positiveText": null,
+      "negativeText": "Overpriced and not worth the money."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "value_for_money": "negative"
+    }
+  },
+  {
+    "id": "multi-label-overlap",
+    "input": {
+      "score": 7.5,
+      "positiveText": "Friendly staff, great location and a quiet room.",
+      "negativeText": "The Wi-Fi was slow and the bathroom was dirty."
+    },
+    "expectedSentiment": "mixed",
+    "expectedTopics": {
+      "cleanliness": "negative",
+      "staff_reception": "positive",
+      "noise": "positive",
+      "facilities": "negative",
+      "location": "positive",
+      "room_condition": "negative"
+    }
+  },
+  {
+    "id": "score-only-positive",
+    "input": {
+      "score": 9,
+      "positiveText": null,
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {}
+  },
+  {
+    "id": "score-only-mixed-placeholders",
+    "input": {
+      "score": 7.5,
+      "positiveText": "",
+      "negativeText": "Nothing to dislike."
+    },
+    "expectedSentiment": "mixed",
+    "expectedTopics": {}
+  },
+  {
+    "id": "score-only-negative",
+    "input": {
+      "score": 6.9,
+      "positiveText": null,
+      "negativeText": null
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {}
+  },
+  {
+    "id": "high-score-substantive-complaint",
+    "input": {
+      "score": 9,
+      "positiveText": "Great location.",
+      "negativeText": "Street noise was loud."
+    },
+    "expectedSentiment": "mixed",
+    "expectedTopics": {
+      "noise": "negative",
+      "location": "positive"
+    }
+  },
+  {
+    "id": "low-score-positive-text",
+    "input": {
+      "score": 6.5,
+      "positiveText": "Friendly staff.",
+      "negativeText": null
+    },
+    "expectedSentiment": "mixed",
+    "expectedTopics": {
+      "staff_reception": "positive"
+    }
+  },
+  {
+    "id": "negated-positive-clean",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "The room was not clean."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "cleanliness": "negative"
+    }
+  },
+  {
+    "id": "negated-negative-dirty",
+    "input": {
+      "score": 9,
+      "positiveText": "The room was not dirty.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "cleanliness": "positive"
+    }
+  },
+  {
+    "id": "negated-noise",
+    "input": {
+      "score": 9,
+      "positiveText": "There was no noise at night.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "noise": "positive"
+    }
+  },
+  {
+    "id": "no-topic-match",
+    "input": {
+      "score": 8,
+      "positiveText": "It was exactly as described.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {}
+  },
+  {
+    "id": "spelling-variants",
+    "input": {
+      "score": 5,
+      "positiveText": null,
+      "negativeText": "Mould near the air-con and a sketchy neighbourhood."
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {
+      "cleanliness": "negative",
+      "facilities": "negative",
+      "location": "negative"
+    }
+  },
+  {
+    "id": "checkin-spelling",
+    "input": {
+      "score": 8,
+      "positiveText": "Self checkin was easy.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "check_in": "positive"
+    }
+  },
+  {
+    "id": "same-topic-both-polarities",
+    "input": {
+      "score": 7,
+      "positiveText": "Clean after housekeeping.",
+      "negativeText": "It was not clean when we arrived."
+    },
+    "expectedSentiment": "mixed",
+    "expectedTopics": {
+      "cleanliness": "mixed"
+    }
+  },
+  {
+    "id": "repeated-topic-terms",
+    "input": {
+      "score": 9,
+      "positiveText": "Clean, clean and spotless.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "cleanliness": "positive"
+    }
+  },
+  {
+    "id": "title-is-not-used-to-invent-topic",
+    "input": {
+      "score": 6,
+      "title": "Dirty room",
+      "positiveText": null,
+      "negativeText": null
+    },
+    "expectedSentiment": "negative",
+    "expectedTopics": {}
+  },
+  {
+    "id": "negative-placeholder",
+    "input": {
+      "score": 10,
+      "positiveText": null,
+      "negativeText": "No complaints."
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {}
+  },
+  {
+    "id": "no-problem-checking-in",
+    "input": {
+      "score": 9,
+      "positiveText": "No problem checking in.",
+      "negativeText": null
+    },
+    "expectedSentiment": "positive",
+    "expectedTopics": {
+      "check_in": "positive"
+    }
+  }
+]
