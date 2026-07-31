@@ -400,7 +400,7 @@ test("accepts only the exact known Central advertised/retrievable gap", () => {
     retrievableReviews: 2_536,
     sourceReviewGap: 1,
     sourceDiscrepancyKind:
-      "central_sydney_known_source_gap_v1",
+      "booking_source_count_gap_v1",
     sourceDiscrepancyScoreBucket:
       "REVIEW_ADJ_AVERAGE_PASSABLE",
     advertisedBucketReviews: 323,
@@ -432,7 +432,7 @@ test("accepts only the exact known Central advertised/retrievable gap", () => {
     retrievableReviews: 2_537,
     sourceReviewGap: 1,
     sourceDiscrepancyKind:
-      "central_sydney_known_source_gap_v1",
+      "booking_source_count_gap_v1",
     sourceDiscrepancyScoreBucket:
       "REVIEW_ADJ_AVERAGE_PASSABLE",
     advertisedBucketReviews: 323,
@@ -449,8 +449,8 @@ test("accepts only the exact known Central advertised/retrievable gap", () => {
 
   for (const mutate of [
     (property) => {
-      property.advertisedReviews = 2_538;
-      property.sourceReviewGap = 2;
+      property.advertisedReviews = 2_600;
+      property.sourceReviewGap = 64;
     },
     (property) => {
       property.sourceDiscrepancyKind = "unknown_gap";
@@ -488,7 +488,7 @@ test("rejects hidden or partial source-gap metadata on a normal export", () => {
     advertisedReviews: 2,
     sourceReviewGap: 1,
     sourceDiscrepancyKind:
-      "central_sydney_known_source_gap_v1",
+      "booking_source_count_gap_v1",
     sourceDiscrepancyScoreBucket:
       "REVIEW_ADJ_AVERAGE_PASSABLE",
     advertisedBucketReviews: 323,

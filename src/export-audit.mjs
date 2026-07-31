@@ -12,8 +12,10 @@ import {
 import { loadProperties } from "./property-config.mjs";
 import { PARSER_VERSION } from "./review-contract.mjs";
 import {
-  KNOWN_SOURCE_DISCREPANCY,
+  maxAllowedSourceGap,
+  SOURCE_GAP_CONTRACT,
 } from "./source-discrepancy.mjs";
+import { REVIEW_SCORE_RANGE_VALUES } from "./live-template.mjs";
 
 export const EXPORT_AUDIT_CONTRACT_VERSION = 1;
 
@@ -197,25 +199,23 @@ function validManifestSourceCounts(property) {
       property.retrievableBucketReviews === null
     );
   }
+  // The manifest carries only the headline bucket, so its shortfall must be at
+  // least one review and can never exceed the property's whole gap.
+  const bucketShortfall =
+    property.advertisedBucketReviews -
+    property.retrievableBucketReviews;
   return (
     validCount(property.advertisedBucketReviews) &&
     validCount(property.retrievableBucketReviews) &&
-    property.propertyKey === KNOWN_SOURCE_DISCREPANCY.propertyKey &&
-    property.bookingHotelId ===
-      KNOWN_SOURCE_DISCREPANCY.bookingHotelId &&
-    property.sourceReviewGap ===
-      KNOWN_SOURCE_DISCREPANCY.gapCount &&
-    property.advertisedReviews >=
-      KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedReviewCount &&
+    property.sourceReviewGap <=
+      maxAllowedSourceGap(property.advertisedReviews) &&
     property.sourceDiscrepancyKind ===
-      KNOWN_SOURCE_DISCREPANCY.contractKind &&
-    property.sourceDiscrepancyScoreBucket ===
-      KNOWN_SOURCE_DISCREPANCY.targetScoreBucket &&
-    property.advertisedBucketReviews >=
-      KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedTargetBucketCount &&
-    property.advertisedBucketReviews -
-      property.retrievableBucketReviews ===
-      property.sourceReviewGap
+      SOURCE_GAP_CONTRACT.contractKind &&
+    REVIEW_SCORE_RANGE_VALUES.includes(
+      property.sourceDiscrepancyScoreBucket,
+    ) &&
+    bucketShortfall >= 1 &&
+    bucketShortfall <= property.sourceReviewGap
   );
 }
 

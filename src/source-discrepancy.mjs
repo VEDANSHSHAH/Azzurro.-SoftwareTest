@@ -2,7 +2,6 @@ import {
   REVIEW_SCORE_RANGE_VALUES,
 } from "./live-template.mjs";
 
-const TARGET_SCORE_BUCKET = "REVIEW_ADJ_AVERAGE_PASSABLE";
 const TRUSTED_TOTAL_SOURCES = Object.freeze([
   "customerTypeFilter.ALL",
   "languageFilter.empty",
@@ -16,17 +15,34 @@ function frozenEntries(entries) {
   );
 }
 
-export const KNOWN_SOURCE_DISCREPANCY = Object.freeze({
-  contractKind: "central_sydney_known_source_gap_v1",
+// Booking's aggregate filter counts and its paginated ReviewList inventory can
+// disagree by a small number of reviews. The gap is a property of the source,
+// not of any one hotel, so it is tolerated within bounds and disclosed rather
+// than required, pinned to a hotel, or pinned to a score bucket.
+export const SOURCE_GAP_CONTRACT = Object.freeze({
+  contractKind: "booking_source_count_gap_v1",
   contractVersion: 1,
-  propertyKey: "central_sydney",
-  bookingHotelId: 9888182,
-  minimumAdvertisedReviewCount: 2537,
-  gapCount: 1,
-  targetScoreBucket: TARGET_SCORE_BUCKET,
-  minimumAdvertisedTargetBucketCount: 323,
+  maxAbsoluteGap: 5,
+  maxGapFraction: 0.01,
   trustedTotalSources: TRUSTED_TOTAL_SOURCES,
 });
+
+export function maxAllowedSourceGap(advertisedReviewCount) {
+  if (
+    !Number.isSafeInteger(advertisedReviewCount) ||
+    advertisedReviewCount < 0
+  ) {
+    return 0;
+  }
+  // Floor, so a property too small for the fraction to reach one review
+  // tolerates no gap at all rather than silently dropping a real share of it.
+  return Math.min(
+    SOURCE_GAP_CONTRACT.maxAbsoluteGap,
+    Math.floor(
+      advertisedReviewCount * SOURCE_GAP_CONTRACT.maxGapFraction,
+    ),
+  );
+}
 
 export class SourceDiscrepancyError extends Error {
   constructor(code, message, details = {}) {
@@ -81,26 +97,52 @@ function assertNonNegativeSafeInteger(value, path) {
   }
 }
 
-function propertyMatch(propertyKey, bookingHotelId) {
-  const keyMatches =
-    propertyKey === KNOWN_SOURCE_DISCREPANCY.propertyKey;
-  const idMatches =
-    bookingHotelId === KNOWN_SOURCE_DISCREPANCY.bookingHotelId;
-
-  if (!keyMatches && !idMatches) return false;
-  if (!keyMatches || !idMatches) {
+function assertPropertyIdentity(propertyKey, bookingHotelId) {
+  if (typeof propertyKey !== "string" || propertyKey.trim() === "") {
     fail(
       "PROPERTY_IDENTITY_MISMATCH",
-      "The known source discrepancy requires the exact configured property key and Booking hotel ID",
+      "A source-gap attestation requires a property key",
+      { propertyKey },
+    );
+  }
+  if (
+    !Number.isSafeInteger(bookingHotelId) ||
+    bookingHotelId <= 0
+  ) {
+    fail(
+      "PROPERTY_IDENTITY_MISMATCH",
+      "A source-gap attestation requires a positive Booking hotel ID",
+      { propertyKey, bookingHotelId },
+    );
+  }
+}
+
+function assertGapWithinBounds(
+  advertisedReviewCount,
+  retrievableReviewCount,
+) {
+  const gapCount = advertisedReviewCount - retrievableReviewCount;
+  if (gapCount <= 0) {
+    fail(
+      "GAP_COUNT_MISMATCH",
+      "A source-gap attestation requires at least one advertised but unretrievable review",
+      { advertisedReviewCount, retrievableReviewCount },
+    );
+  }
+  const maximumGap = maxAllowedSourceGap(advertisedReviewCount);
+  if (gapCount > maximumGap) {
+    fail(
+      "GAP_COUNT_MISMATCH",
+      "The advertised and retrievable review counts differ by more than the tolerated source gap",
       {
-        propertyKey,
-        bookingHotelId,
-        keyMatches,
-        idMatches,
+        advertisedReviewCount,
+        retrievableReviewCount,
+        gapCount,
+        maximumGap,
       },
     );
   }
-  return true;
+  return gapCount;
 }
 
 function normalizeTrustedTotals(
@@ -113,7 +155,7 @@ function normalizeTrustedTotals(
   ) {
     fail(
       "TRUSTED_TOTALS_MISMATCH",
-      "Known source discrepancy evidence requires all four trusted advertised totals",
+      "Source-gap evidence requires all four trusted advertised totals",
       {
         observedLength: Array.isArray(trustedTotals)
           ? trustedTotals.length
@@ -263,7 +305,6 @@ function assertAdvertisedBuckets(
     advertisedScoreBuckets,
     "advertisedScoreBuckets",
   );
-  const counts = bucketMap(buckets);
   const total = sumBuckets(
     buckets,
     "advertisedScoreBuckets",
@@ -275,101 +316,113 @@ function assertAdvertisedBuckets(
       { observed: total, advertisedReviewCount },
     );
   }
-  if (
-    counts.get(TARGET_SCORE_BUCKET) <
-    KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedTargetBucketCount
-  ) {
-    fail(
-      "TARGET_BUCKET_MISMATCH",
-      "The advertised 5–7 score bucket cannot fall below the independently verified baseline",
-      {
-        observed: counts.get(TARGET_SCORE_BUCKET),
-        minimum:
-          KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedTargetBucketCount,
-      },
-    );
-  }
   return buckets;
 }
 
-function buildIdentifiedEvidence({
-  trustedTotals,
+// The gap can fall in any score bucket, and in more than one. Every bucket must
+// be short or exact, and the shortfalls must account for the whole gap. The
+// largest single shortfall is reported as the headline bucket for disclosure.
+function resolveScoreBucketGap(
   advertisedScoreBuckets,
-  advertisedReviewCount,
-}) {
-  const contract = KNOWN_SOURCE_DISCREPANCY;
-  const advertisedTargetCount = bucketMap(
-    advertisedScoreBuckets,
-  ).get(contract.targetScoreBucket);
-  return Object.freeze({
-    contractKind: contract.contractKind,
-    contractVersion: contract.contractVersion,
-    propertyKey: contract.propertyKey,
-    bookingHotelId: contract.bookingHotelId,
-    advertisedReviewCount,
-    retrievableReviewCount:
-      advertisedReviewCount - contract.gapCount,
-    gapCount: contract.gapCount,
-    advertisedTrustedTotals: trustedTotals,
-    advertisedScoreBuckets,
-    scoreBucketGap: Object.freeze({
-      value: contract.targetScoreBucket,
-      advertisedCount: advertisedTargetCount,
-      retrievableCount:
-        advertisedTargetCount - contract.gapCount,
-      gapCount: contract.gapCount,
-    }),
-  });
+  retrievableScoreBuckets,
+  gapCount,
+) {
+  const advertisedByValue = bucketMap(advertisedScoreBuckets);
+  const retrievableByValue = bucketMap(retrievableScoreBuckets);
+  let shortfallTotal = 0;
+  let headline = null;
+
+  for (const value of REVIEW_SCORE_RANGE_VALUES) {
+    const advertisedCount = advertisedByValue.get(value);
+    const retrievableCount = retrievableByValue.get(value);
+    const shortfall = advertisedCount - retrievableCount;
+    if (shortfall < 0) {
+      fail(
+        "BUCKET_SURPLUS",
+        "A score bucket returned more reviews than Booking advertised for it",
+        { value, advertisedCount, retrievableCount },
+      );
+    }
+    shortfallTotal += shortfall;
+    if (headline === null || shortfall > headline.gapCount) {
+      headline = {
+        value,
+        advertisedCount,
+        retrievableCount,
+        gapCount: shortfall,
+      };
+    }
+  }
+
+  if (shortfallTotal !== gapCount) {
+    fail(
+      "BUCKET_GAP_MISMATCH",
+      "Per-bucket score shortfalls do not account for the source review gap",
+      { shortfallTotal, gapCount },
+    );
+  }
+  return Object.freeze(headline);
 }
 
-export function identifyKnownSourceDiscrepancy({
+export function identifySourceGap({
   propertyKey,
   bookingHotelId,
   aggregateEvidence,
 }) {
-  if (!propertyMatch(propertyKey, bookingHotelId)) return null;
-
+  assertPropertyIdentity(propertyKey, bookingHotelId);
   assertExactKeys(
     aggregateEvidence,
-    ["reviewsCount", "trustedTotals", "scoreBuckets"],
+    [
+      "reviewsCount",
+      "retrievableReviewCount",
+      "trustedTotals",
+      "scoreBuckets",
+    ],
     "aggregateEvidence",
   );
   assertNonNegativeSafeInteger(
     aggregateEvidence.reviewsCount,
     "aggregateEvidence.reviewsCount",
   );
-  if (
-    aggregateEvidence.reviewsCount <
-    KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedReviewCount
-  ) {
-    fail(
-      "ADVERTISED_COUNT_MISMATCH",
-      "The advertised review count cannot fall below the independently verified Central baseline",
-      {
-        observed: aggregateEvidence.reviewsCount,
-        minimum:
-          KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedReviewCount,
-      },
-    );
+  assertNonNegativeSafeInteger(
+    aggregateEvidence.retrievableReviewCount,
+    "aggregateEvidence.retrievableReviewCount",
+  );
+
+  const advertisedReviewCount = aggregateEvidence.reviewsCount;
+  const retrievableReviewCount =
+    aggregateEvidence.retrievableReviewCount;
+  if (advertisedReviewCount === retrievableReviewCount) {
+    return null;
   }
+
+  const gapCount = assertGapWithinBounds(
+    advertisedReviewCount,
+    retrievableReviewCount,
+  );
   const trustedTotals = normalizeTrustedTotals(
     aggregateEvidence.trustedTotals,
-    aggregateEvidence.reviewsCount,
+    advertisedReviewCount,
   );
-  const advertisedScoreBuckets =
-    assertAdvertisedBuckets(
-      aggregateEvidence.scoreBuckets,
-      aggregateEvidence.reviewsCount,
-    );
+  const advertisedScoreBuckets = assertAdvertisedBuckets(
+    aggregateEvidence.scoreBuckets,
+    advertisedReviewCount,
+  );
 
-  return buildIdentifiedEvidence({
-    trustedTotals,
+  return Object.freeze({
+    contractKind: SOURCE_GAP_CONTRACT.contractKind,
+    contractVersion: SOURCE_GAP_CONTRACT.contractVersion,
+    propertyKey,
+    bookingHotelId,
+    advertisedReviewCount,
+    retrievableReviewCount,
+    gapCount,
+    advertisedTrustedTotals: trustedTotals,
     advertisedScoreBuckets,
-    advertisedReviewCount: aggregateEvidence.reviewsCount,
   });
 }
 
-export function assertKnownSourceDiscrepancy({
+export function assertSourceGap({
   propertyKey,
   bookingHotelId,
   advertisedReviewCount,
@@ -379,19 +432,11 @@ export function assertKnownSourceDiscrepancy({
   contractKind,
   advertisedTrustedTotals = undefined,
 }) {
-  if (!propertyMatch(propertyKey, bookingHotelId)) {
-    fail(
-      "PROPERTY_NOT_ELIGIBLE",
-      "This property has no known source discrepancy contract",
-      { propertyKey, bookingHotelId },
-    );
-  }
-
-  const contract = KNOWN_SOURCE_DISCREPANCY;
-  if (contractKind !== contract.contractKind) {
+  assertPropertyIdentity(propertyKey, bookingHotelId);
+  if (contractKind !== SOURCE_GAP_CONTRACT.contractKind) {
     fail(
       "CONTRACT_KIND_MISMATCH",
-      "The known source discrepancy contract kind does not match",
+      "The source-gap contract kind does not match",
       { observed: contractKind },
     );
   }
@@ -403,32 +448,10 @@ export function assertKnownSourceDiscrepancy({
     retrievableReviewCount,
     "retrievableReviewCount",
   );
-  if (
-    advertisedReviewCount <
-    contract.minimumAdvertisedReviewCount
-  ) {
-    fail(
-      "ADVERTISED_COUNT_MISMATCH",
-      "The advertised review count cannot fall below the independently verified Central baseline",
-      {
-        observed: advertisedReviewCount,
-        minimum: contract.minimumAdvertisedReviewCount,
-      },
-    );
-  }
-  if (
-    advertisedReviewCount - retrievableReviewCount !==
-    contract.gapCount
-  ) {
-    fail(
-      "GAP_COUNT_MISMATCH",
-      "The source discrepancy gap must be exactly one review",
-      {
-        advertisedReviewCount,
-        retrievableReviewCount,
-      },
-    );
-  }
+  const gapCount = assertGapWithinBounds(
+    advertisedReviewCount,
+    retrievableReviewCount,
+  );
 
   const normalizedAdvertised = assertAdvertisedBuckets(
     advertisedScoreBuckets,
@@ -450,38 +473,11 @@ export function assertKnownSourceDiscrepancy({
     );
   }
 
-  const advertisedByValue = bucketMap(normalizedAdvertised);
-  const retrievableByValue = bucketMap(normalizedRetrievable);
-  const advertisedTarget =
-    advertisedByValue.get(TARGET_SCORE_BUCKET);
-  const retrievableTarget =
-    retrievableByValue.get(TARGET_SCORE_BUCKET);
-  if (
-    advertisedTarget - retrievableTarget !== contract.gapCount
-  ) {
-    fail(
-      "TARGET_BUCKET_MISMATCH",
-      "Only the 5–7 score bucket may be short, and its live advertised/retrievable gap must be exactly one",
-      {
-        value: TARGET_SCORE_BUCKET,
-        advertised: advertisedTarget,
-        retrievable: retrievableTarget,
-      },
-    );
-  }
-  for (const value of REVIEW_SCORE_RANGE_VALUES) {
-    if (value === TARGET_SCORE_BUCKET) continue;
-    const advertised = advertisedByValue.get(value);
-    const retrievable = retrievableByValue.get(value);
-    if (advertised !== retrievable) {
-      fail(
-        "NON_TARGET_BUCKET_MISMATCH",
-        "Every non-target score bucket must have exact advertised/retrievable parity",
-        { value, advertised, retrievable },
-      );
-    }
-  }
-
+  const scoreBucketGap = resolveScoreBucketGap(
+    normalizedAdvertised,
+    normalizedRetrievable,
+    gapCount,
+  );
   const normalizedTrustedTotals =
     advertisedTrustedTotals === undefined
       ? null
@@ -491,22 +487,17 @@ export function assertKnownSourceDiscrepancy({
         );
 
   return Object.freeze({
-    contractKind: contract.contractKind,
-    contractVersion: contract.contractVersion,
-    propertyKey: contract.propertyKey,
-    bookingHotelId: contract.bookingHotelId,
+    contractKind: SOURCE_GAP_CONTRACT.contractKind,
+    contractVersion: SOURCE_GAP_CONTRACT.contractVersion,
+    propertyKey,
+    bookingHotelId,
     advertisedReviewCount,
     retrievableReviewCount,
-    gapCount: contract.gapCount,
+    gapCount,
     advertisedTrustedTotals: normalizedTrustedTotals,
     advertisedScoreBuckets: normalizedAdvertised,
     retrievableScoreBuckets: normalizedRetrievable,
-    scoreBucketGap: Object.freeze({
-      value: contract.targetScoreBucket,
-      advertisedCount: advertisedTarget,
-      retrievableCount: retrievableTarget,
-      gapCount: contract.gapCount,
-    }),
+    scoreBucketGap,
   });
 }
 
@@ -514,26 +505,21 @@ export function safeSourceDiscrepancyEvidence(evidence) {
   if (!isPlainObject(evidence)) {
     fail(
       "INVALID_ATTESTATION",
-      "Known source discrepancy attestation must be a plain object",
+      "A source-gap attestation must be a plain object",
     );
   }
   if (
     evidence.contractVersion !==
-      KNOWN_SOURCE_DISCREPANCY.contractVersion ||
-    evidence.gapCount !== KNOWN_SOURCE_DISCREPANCY.gapCount ||
-    !isPlainObject(evidence.scoreBucketGap) ||
-    evidence.scoreBucketGap.value !==
-      KNOWN_SOURCE_DISCREPANCY.targetScoreBucket ||
-    evidence.scoreBucketGap.gapCount !==
-      KNOWN_SOURCE_DISCREPANCY.gapCount
+      SOURCE_GAP_CONTRACT.contractVersion ||
+    !isPlainObject(evidence.scoreBucketGap)
   ) {
     fail(
       "INVALID_ATTESTATION",
-      "Known source discrepancy attestation metadata has drifted",
+      "Source-gap attestation metadata has drifted",
     );
   }
 
-  const normalized = assertKnownSourceDiscrepancy({
+  const normalized = assertSourceGap({
     propertyKey: evidence.propertyKey,
     bookingHotelId: evidence.bookingHotelId,
     advertisedReviewCount: evidence.advertisedReviewCount,
@@ -545,6 +531,11 @@ export function safeSourceDiscrepancyEvidence(evidence) {
       evidence.advertisedTrustedTotals ?? undefined,
   });
   if (
+    evidence.gapCount !== normalized.gapCount ||
+    evidence.scoreBucketGap.value !==
+      normalized.scoreBucketGap.value ||
+    evidence.scoreBucketGap.gapCount !==
+      normalized.scoreBucketGap.gapCount ||
     evidence.scoreBucketGap.advertisedCount !==
       normalized.scoreBucketGap.advertisedCount ||
     evidence.scoreBucketGap.retrievableCount !==
@@ -552,7 +543,7 @@ export function safeSourceDiscrepancyEvidence(evidence) {
   ) {
     fail(
       "INVALID_ATTESTATION",
-      "Known source discrepancy target-bucket metadata does not match its persisted bucket evidence",
+      "Source-gap target-bucket metadata does not match its persisted bucket evidence",
     );
   }
 

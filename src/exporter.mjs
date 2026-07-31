@@ -5,8 +5,8 @@ import {
 import { PARSER_VERSION } from "./review-contract.mjs";
 import { REVIEW_SCORE_RANGE_VALUES } from "./live-template.mjs";
 import {
-  assertKnownSourceDiscrepancy,
-  KNOWN_SOURCE_DISCREPANCY,
+  assertSourceGap,
+  SOURCE_GAP_CONTRACT,
 } from "./source-discrepancy.mjs";
 
 const SHA256 = /^[a-f0-9]{64}$/i;
@@ -74,20 +74,10 @@ function validateKnownSourceDiscrepancy(
 ) {
   if (!isPlainObject(value)) return null;
   if (
-    value.contractVersion !==
-      KNOWN_SOURCE_DISCREPANCY.contractVersion ||
-    value.contractKind !==
-      KNOWN_SOURCE_DISCREPANCY.contractKind ||
-    value.propertyKey !==
-      KNOWN_SOURCE_DISCREPANCY.propertyKey ||
-    value.bookingHotelId !==
-      KNOWN_SOURCE_DISCREPANCY.bookingHotelId ||
-    value.gapCount !== KNOWN_SOURCE_DISCREPANCY.gapCount ||
-    value.scoreBucket !==
-      KNOWN_SOURCE_DISCREPANCY.targetScoreBucket ||
-    property?.property_key !== KNOWN_SOURCE_DISCREPANCY.propertyKey ||
-    property?.booking_hotel_id !==
-      KNOWN_SOURCE_DISCREPANCY.bookingHotelId ||
+    value.contractVersion !== SOURCE_GAP_CONTRACT.contractVersion ||
+    value.contractKind !== SOURCE_GAP_CONTRACT.contractKind ||
+    value.propertyKey !== property?.property_key ||
+    value.bookingHotelId !== property?.booking_hotel_id ||
     !validCount(value.advertisedReviewCount) ||
     !validCount(value.retrievableReviewCount) ||
     !validCount(value.advertisedBucketCount) ||
@@ -100,10 +90,7 @@ function validateKnownSourceDiscrepancy(
   if (
     value.advertisedReviewCount -
       value.retrievableReviewCount !==
-      value.gapCount ||
-    value.advertisedBucketCount -
-      value.retrievableBucketCount !==
-      value.gapCount
+    value.gapCount
   ) {
     return null;
   }
@@ -115,7 +102,7 @@ function validateKnownSourceDiscrepancy(
   );
   if (advertised === null || retrievable === null) return null;
   try {
-    const normalized = assertKnownSourceDiscrepancy({
+    const normalized = assertSourceGap({
       propertyKey: value.propertyKey,
       bookingHotelId: value.bookingHotelId,
       advertisedReviewCount: value.advertisedReviewCount,
@@ -125,6 +112,8 @@ function validateKnownSourceDiscrepancy(
       contractKind: value.contractKind,
     });
     if (
+      value.gapCount !== normalized.gapCount ||
+      value.scoreBucket !== normalized.scoreBucketGap.value ||
       value.advertisedBucketCount !==
         normalized.scoreBucketGap.advertisedCount ||
       value.retrievableBucketCount !==
@@ -414,16 +403,6 @@ function authoritativePublicationEvidence(storage, stats) {
   ) {
     reasons.push("source_discrepancy_attestation_invalid");
   }
-  if (
-    sourceDiscrepancy === null &&
-    stats?.property?.property_key ===
-      KNOWN_SOURCE_DISCREPANCY.propertyKey &&
-    stats?.property?.booking_hotel_id ===
-      KNOWN_SOURCE_DISCREPANCY.bookingHotelId
-  ) {
-    reasons.push("source_discrepancy_attestation_missing");
-  }
-
   return {
     authoritative: reasons.length === 0,
     missing: false,

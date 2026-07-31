@@ -1,48 +1,52 @@
-# How to run the application
+# Start here
 
-## 1. Install requirements
+This guide covers the one-time setup, collecting reviews, and opening the
+dashboard. Use the commands exactly as written in a terminal opened inside the
+project folder.
 
-Install Node.js 22.13 or newer, then open a terminal in the project folder.
+## 1. Install the project
+
+Install Node.js 22.13 or newer, then run:
 
 ```bash
 npm ci
 npm ci --prefix dashboard
-```
-
-Install the browser used by the optional review collector:
-
-```bash
 npx playwright install chromium
 ```
 
-## 2. Collect initial data
+This installs the app, dashboard, and browser used to collect public reviews.
 
-Run one property at a time so a temporary source issue stops safely:
+## 2. Collect reviews
 
-```bash
-npm run refresh:reviews -- --property olympic_paddington
-```
-
-Other configured property keys are `potts_point`, `central_sydney`, and
-`darling_harbour`. The collector creates the local database publication,
-deduplicates by review identity, and publishes only a complete verified result.
-
-If the source presents a normal human-verification page, use the supported
-headed mode and complete that verification manually:
+The included database starts empty. Run one hotel at a time in headed mode so
+you can complete a normal Booking verification screen if it appears:
 
 ```bash
-npm run refresh:reviews -- --property central_sydney --headed --interactive-challenge
+npm run refresh:reviews -- --property olympic_paddington --headed --interactive-challenge
 ```
 
-## 3. Start the dashboard
+Use the same command with one of these names for the other hotels:
+
+```text
+potts_point
+central_sydney
+darling_harbour
+```
+
+The scraper reads each property twice, avoids duplicates, and only saves a
+result after the full collection has been checked. Larger properties can take
+several minutes. If a run fails, it does not replace previously accepted data.
+
+## 3. Open the dashboard
+
+After at least one property has been collected, run:
 
 ```bash
 npm run app
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
-
-The included SQLite file contains the database schema only. Stop the local app
-with `Ctrl+C` in the terminal.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser. Leave the
+terminal open while using the dashboard. Press `Ctrl+C` in that terminal to
+stop it.
 
 Do not add login details, cookies, or credentials to the project.

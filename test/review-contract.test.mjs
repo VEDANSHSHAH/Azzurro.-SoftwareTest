@@ -1045,7 +1045,7 @@ test("gates inconsistent trusted totals only for unfiltered responses", () => {
   );
 });
 
-test("allows only Central's exact one-review structured-list discrepancy", () => {
+test("allows a bounded structured-list discrepancy for any property", () => {
   const exact = responseWithAggregateMetadata({
     reviewsCount: 2536,
     aggregateCount: 2537,
@@ -1097,22 +1097,36 @@ test("allows only Central's exact one-review structured-list discrepancy", () =>
     2537,
   );
 
+  // The gap is a Booking aggregation artefact, not a property-specific
+  // exception, so any property may disclose one within the same bound.
+  assert.equal(
+    validateReviewListResponse(exact, {
+      propertyKey: "another_property",
+      unfiltered: true,
+    }).reviewsCount,
+    2536,
+  );
+
+  const wide = responseWithAggregateMetadata({
+    reviewsCount: 2530,
+    aggregateCount: 2537,
+  });
   assert.throws(
     () =>
-      validateReviewListResponse(exact, {
-        propertyKey: "another_property",
+      validateReviewListResponse(wide, {
+        propertyKey: "central_sydney",
         unfiltered: true,
       }),
     /aggregate totals disagree/,
   );
 
-  const drifted = structuredClone(exact);
-  drifted.data.reviewListFrontend.reviewScoreFilter.find(
-    ({ value }) => value === "REVIEW_ADJ_AVERAGE_PASSABLE",
-  ).count = 322;
+  const negative = responseWithAggregateMetadata({
+    reviewsCount: 2538,
+    aggregateCount: 2537,
+  });
   assert.throws(
     () =>
-      validateReviewListResponse(drifted, {
+      validateReviewListResponse(negative, {
         propertyKey: "central_sydney",
         unfiltered: true,
       }),

@@ -381,7 +381,7 @@ test("strict all export accepts all configured attested full publications", () =
 
 function centralDiscrepancy() {
   return {
-    contractKind: "central_sydney_known_source_gap_v1",
+    contractKind: "booking_source_count_gap_v1",
     contractVersion: 1,
     propertyKey: "central_sydney",
     bookingHotelId: 9_888_182,
@@ -497,7 +497,7 @@ test("exports the exact persisted Central source gap as safe manifest fields", (
       retrievableReviews: 2_536,
       sourceReviewGap: 1,
       sourceDiscrepancyKind:
-        "central_sydney_known_source_gap_v1",
+        "booking_source_count_gap_v1",
       sourceDiscrepancyScoreBucket:
         "REVIEW_ADJ_AVERAGE_PASSABLE",
       advertisedBucketReviews: 323,
@@ -596,22 +596,18 @@ test("rejects malformed, unexpected, or drifting source-gap attestations", () =>
     },
   );
 
-  const missing = centralFixture();
-  missing.sourceDiscrepanciesById.clear();
-  assert.throws(
-    () =>
-      collectExportRecords(
-        missing.storage,
-        ["central_sydney"],
-        { strictAll: true, samplePerProperty: 1 },
-      ),
-    (error) => {
-      assert.ok(error instanceof ExportValidationError);
-      assert.deepEqual(
-        error.details.nonAuthoritativeProperties[0].reasons,
-        ["source_discrepancy_attestation_missing"],
-      );
-      return true;
-    },
+  // A property with no attestation is claiming no gap, which is the ordinary
+  // healthy case rather than a missing exception.
+  const noGap = centralFixture();
+  noGap.sourceDiscrepanciesById.clear();
+  const exported = collectExportRecords(
+    noGap.storage,
+    ["central_sydney"],
+    { strictAll: true, samplePerProperty: 1 },
+  );
+  assert.equal(exported.properties[0].sourceReviewGap, 0);
+  assert.equal(
+    exported.properties[0].sourceDiscrepancyKind,
+    null,
   );
 });

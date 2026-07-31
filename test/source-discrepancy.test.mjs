@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  assertKnownSourceDiscrepancy,
-  identifyKnownSourceDiscrepancy,
-  KNOWN_SOURCE_DISCREPANCY,
+  assertSourceGap,
+  identifySourceGap,
+  maxAllowedSourceGap,
   safeSourceDiscrepancyEvidence,
+  SOURCE_GAP_CONTRACT,
   SourceDiscrepancyError,
 } from "../src/source-discrepancy.mjs";
 
@@ -35,6 +36,7 @@ const RETRIEVABLE_BUCKETS = ADVERTISED_BUCKETS.map((bucket) => ({
 function aggregateEvidence(overrides = {}) {
   return {
     reviewsCount: 2537,
+    retrievableReviewCount: 2536,
     trustedTotals: TRUSTED_TOTALS.map((item) => ({ ...item })),
     scoreBuckets: ADVERTISED_BUCKETS.map((item) => ({ ...item })),
     ...overrides,
@@ -53,8 +55,7 @@ function fullEvidence(overrides = {}) {
       ADVERTISED_BUCKETS.map((item) => ({ ...item })),
     retrievableScoreBuckets:
       RETRIEVABLE_BUCKETS.map((item) => ({ ...item })),
-    contractKind:
-      KNOWN_SOURCE_DISCREPANCY.contractKind,
+    contractKind: SOURCE_GAP_CONTRACT.contractKind,
     ...overrides,
   };
 }
@@ -67,8 +68,21 @@ function expectCode(code, callback) {
   });
 }
 
-test("identifies only the exact Central property and advertised evidence", () => {
-  const identified = identifyKnownSourceDiscrepancy({
+test("a property whose advertised and retrievable counts agree has no gap", () => {
+  assert.equal(
+    identifySourceGap({
+      propertyKey: "central_sydney",
+      bookingHotelId: 9888182,
+      aggregateEvidence: aggregateEvidence({
+        retrievableReviewCount: 2537,
+      }),
+    }),
+    null,
+  );
+});
+
+test("identifies a bounded advertised/retrievable gap for any property", () => {
+  const identified = identifySourceGap({
     propertyKey: "central_sydney",
     bookingHotelId: 9888182,
     aggregateEvidence: aggregateEvidence(),
@@ -77,56 +91,66 @@ test("identifies only the exact Central property and advertised evidence", () =>
   assert.equal(Object.isFrozen(identified), true);
   assert.equal(
     identified.contractKind,
-    "central_sydney_known_source_gap_v1",
+    "booking_source_count_gap_v1",
   );
   assert.equal(identified.advertisedReviewCount, 2537);
   assert.equal(identified.retrievableReviewCount, 2536);
   assert.equal(identified.gapCount, 1);
   assert.deepEqual(
     identified.advertisedTrustedTotals.map(({ source }) => source),
-    KNOWN_SOURCE_DISCREPANCY.trustedTotalSources,
-  );
-  assert.deepEqual(
-    identified.scoreBucketGap,
-    {
-      value: "REVIEW_ADJ_AVERAGE_PASSABLE",
-      advertisedCount: 323,
-      retrievableCount: 322,
-      gapCount: 1,
-    },
+    SOURCE_GAP_CONTRACT.trustedTotalSources,
   );
   assert.equal(
     Object.isFrozen(identified.advertisedScoreBuckets),
     true,
   );
-  assert.equal(
-    Object.isFrozen(identified.advertisedScoreBuckets[0]),
-    true,
-  );
 });
 
-test("unrelated properties receive no exception or source-gap exception", () => {
-  assert.equal(
-    identifyKnownSourceDiscrepancy({
-      propertyKey: "olympic_paddington",
-      bookingHotelId: 16211291,
-      aggregateEvidence: null,
-    }),
-    null,
-  );
+test("the tolerated gap scales down for small properties", () => {
+  assert.equal(maxAllowedSourceGap(2537), 5);
+  assert.equal(maxAllowedSourceGap(100), 1);
+  assert.equal(maxAllowedSourceGap(99), 0);
+  assert.equal(maxAllowedSourceGap(12), 0);
+  assert.equal(maxAllowedSourceGap(0), 0);
+  assert.equal(maxAllowedSourceGap(-1), 0);
+  assert.equal(maxAllowedSourceGap(null), 0);
 });
 
-test("partial Central identity collisions fail closed", () => {
-  expectCode("PROPERTY_IDENTITY_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
+test("a gap wider than the tolerated bound fails closed", () => {
+  expectCode("GAP_COUNT_MISMATCH", () =>
+    identifySourceGap({
       propertyKey: "central_sydney",
-      bookingHotelId: 1,
+      bookingHotelId: 9888182,
+      aggregateEvidence: aggregateEvidence({
+        retrievableReviewCount: 2500,
+      }),
+    }),
+  );
+});
+
+test("a retrievable count above the advertised count fails closed", () => {
+  expectCode("GAP_COUNT_MISMATCH", () =>
+    identifySourceGap({
+      propertyKey: "central_sydney",
+      bookingHotelId: 9888182,
+      aggregateEvidence: aggregateEvidence({
+        retrievableReviewCount: 2538,
+      }),
+    }),
+  );
+});
+
+test("an unusable property identity fails closed", () => {
+  expectCode("PROPERTY_IDENTITY_MISMATCH", () =>
+    identifySourceGap({
+      propertyKey: "central_sydney",
+      bookingHotelId: 0,
       aggregateEvidence: aggregateEvidence(),
     }),
   );
   expectCode("PROPERTY_IDENTITY_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
-      propertyKey: "other",
+    identifySourceGap({
+      propertyKey: "",
       bookingHotelId: 9888182,
       aggregateEvidence: aggregateEvidence(),
     }),
@@ -136,7 +160,7 @@ test("partial Central identity collisions fail closed", () => {
 test("advertised evidence requires four totals matching the live count", () => {
   const missing = TRUSTED_TOTALS.slice(1);
   expectCode("TRUSTED_TOTALS_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
+    identifySourceGap({
       propertyKey: "central_sydney",
       bookingHotelId: 9888182,
       aggregateEvidence: aggregateEvidence({
@@ -150,7 +174,7 @@ test("advertised evidence requires four totals matching the live count", () => {
     count: index === 0 ? 2536 : item.count,
   }));
   expectCode("TRUSTED_TOTALS_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
+    identifySourceGap({
       propertyKey: "central_sydney",
       bookingHotelId: 9888182,
       aggregateEvidence: aggregateEvidence({
@@ -162,7 +186,7 @@ test("advertised evidence requires four totals matching the live count", () => {
   const duplicate = TRUSTED_TOTALS.map((item) => ({ ...item }));
   duplicate[0].source = duplicate[1].source;
   expectCode("TRUSTED_TOTALS_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
+    identifySourceGap({
       propertyKey: "central_sydney",
       bookingHotelId: 9888182,
       aggregateEvidence: aggregateEvidence({
@@ -172,36 +196,7 @@ test("advertised evidence requires four totals matching the live count", () => {
   );
 });
 
-test("advertised evidence rejects internally inconsistent live totals and buckets", () => {
-  expectCode("ADVERTISED_COUNT_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
-      propertyKey: "central_sydney",
-      bookingHotelId: 9888182,
-      aggregateEvidence: aggregateEvidence({
-        reviewsCount: 2536,
-      }),
-    }),
-  );
-
-  const targetDrift = ADVERTISED_BUCKETS.map((item) => ({
-    ...item,
-    count:
-      item.value === "REVIEW_ADJ_AVERAGE_PASSABLE"
-        ? 0
-        : item.value === "REVIEW_ADJ_SUPERB"
-          ? 823
-          : item.count,
-  }));
-  expectCode("TARGET_BUCKET_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
-      propertyKey: "central_sydney",
-      bookingHotelId: 9888182,
-      aggregateEvidence: aggregateEvidence({
-        scoreBuckets: targetDrift,
-      }),
-    }),
-  );
-
+test("advertised buckets must sum to the advertised total", () => {
   const sumDrift = ADVERTISED_BUCKETS.map((item) => ({
     ...item,
     count:
@@ -210,7 +205,7 @@ test("advertised evidence rejects internally inconsistent live totals and bucket
         : item.count,
   }));
   expectCode("ADVERTISED_BUCKET_SUM_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
+    identifySourceGap({
       propertyKey: "central_sydney",
       bookingHotelId: 9888182,
       aggregateEvidence: aggregateEvidence({
@@ -220,8 +215,8 @@ test("advertised evidence rejects internally inconsistent live totals and bucket
   );
 });
 
-test("asserts the exact one-review target-bucket discrepancy", () => {
-  const evidence = assertKnownSourceDiscrepancy(fullEvidence());
+test("asserts a gap and reports its headline score bucket", () => {
+  const evidence = assertSourceGap(fullEvidence());
 
   assert.equal(Object.isFrozen(evidence), true);
   assert.equal(evidence.advertisedReviewCount, 2537);
@@ -236,8 +231,7 @@ test("asserts the exact one-review target-bucket discrepancy", () => {
   assert.deepEqual(
     safeSourceDiscrepancyEvidence(evidence),
     {
-      sourceDiscrepancyKind:
-        "central_sydney_known_source_gap_v1",
+      sourceDiscrepancyKind: "booking_source_count_gap_v1",
       advertisedReviews: 2537,
       retrievableReviews: 2536,
       sourceReviewGap: 1,
@@ -249,54 +243,82 @@ test("asserts the exact one-review target-bucket discrepancy", () => {
   );
 });
 
-test("full assertion rejects gap, target-bucket, and other-bucket drift", () => {
-  expectCode("CONTRACT_KIND_MISMATCH", () =>
-    assertKnownSourceDiscrepancy(
-      fullEvidence({ contractKind: "other" }),
-    ),
-  );
-  expectCode("GAP_COUNT_MISMATCH", () =>
-    assertKnownSourceDiscrepancy(
-      fullEvidence({ retrievableReviewCount: 2535 }),
-    ),
-  );
-
-  const targetDrift = RETRIEVABLE_BUCKETS.map((item) => ({
-    ...item,
-    count:
-      item.value === "REVIEW_ADJ_AVERAGE_PASSABLE"
-        ? 323
-        : item.value === "REVIEW_ADJ_SUPERB"
-          ? 499
-          : item.count,
-  }));
-  expectCode("TARGET_BUCKET_MISMATCH", () =>
-    assertKnownSourceDiscrepancy(
-      fullEvidence({
-        retrievableScoreBuckets: targetDrift,
-      }),
-    ),
-  );
-
-  const nonTargetDrift = RETRIEVABLE_BUCKETS.map((item) => ({
+test("the gap may fall in any score bucket", () => {
+  const retrievable = ADVERTISED_BUCKETS.map((item) => ({
     ...item,
     count:
       item.value === "REVIEW_ADJ_SUPERB"
-        ? 499
-        : item.value === "REVIEW_ADJ_GOOD"
-          ? 701
+        ? item.count - 1
+        : item.count,
+  }));
+  const evidence = assertSourceGap(
+    fullEvidence({ retrievableScoreBuckets: retrievable }),
+  );
+  assert.deepEqual(evidence.scoreBucketGap, {
+    value: "REVIEW_ADJ_SUPERB",
+    advertisedCount: 500,
+    retrievableCount: 499,
+    gapCount: 1,
+  });
+});
+
+test("a gap spread across buckets reports the largest shortfall", () => {
+  const retrievable = ADVERTISED_BUCKETS.map((item) => ({
+    ...item,
+    count:
+      item.value === "REVIEW_ADJ_SUPERB"
+        ? item.count - 2
+        : item.value === "REVIEW_ADJ_POOR"
+          ? item.count - 1
           : item.count,
   }));
-  expectCode("NON_TARGET_BUCKET_MISMATCH", () =>
-    assertKnownSourceDiscrepancy(
+  const evidence = assertSourceGap(
+    fullEvidence({
+      retrievableReviewCount: 2534,
+      retrievableScoreBuckets: retrievable,
+    }),
+  );
+  assert.equal(evidence.gapCount, 3);
+  assert.equal(evidence.scoreBucketGap.value, "REVIEW_ADJ_SUPERB");
+  assert.equal(evidence.scoreBucketGap.gapCount, 2);
+});
+
+test("full assertion rejects contract, gap, and bucket drift", () => {
+  expectCode("CONTRACT_KIND_MISMATCH", () =>
+    assertSourceGap(fullEvidence({ contractKind: "other" })),
+  );
+  expectCode("GAP_COUNT_MISMATCH", () =>
+    assertSourceGap(
+      fullEvidence({ retrievableReviewCount: 2537 }),
+    ),
+  );
+  expectCode("RETRIEVABLE_BUCKET_SUM_MISMATCH", () =>
+    assertSourceGap(
       fullEvidence({
-        retrievableScoreBuckets: nonTargetDrift,
+        retrievableScoreBuckets: ADVERTISED_BUCKETS.map((item) => ({
+          ...item,
+        })),
       }),
+    ),
+  );
+
+  const surplus = RETRIEVABLE_BUCKETS.map((item) => ({
+    ...item,
+    count:
+      item.value === "REVIEW_ADJ_AVERAGE_PASSABLE"
+        ? 324
+        : item.value === "REVIEW_ADJ_SUPERB"
+          ? 498
+          : item.count,
+  }));
+  expectCode("BUCKET_SURPLUS", () =>
+    assertSourceGap(
+      fullEvidence({ retrievableScoreBuckets: surplus }),
     ),
   );
 });
 
-test("accepts a later live snapshot while preserving the exact one-review shape", () => {
+test("accepts a later live snapshot with a different total", () => {
   const advertisedScoreBuckets = ADVERTISED_BUCKETS.map((item) => ({
     ...item,
     count:
@@ -315,11 +337,12 @@ test("accepts a later live snapshot while preserving the exact one-review shape"
     ...item,
     count: item.count + 1,
   }));
-  const identified = identifyKnownSourceDiscrepancy({
+  const identified = identifySourceGap({
     propertyKey: "central_sydney",
     bookingHotelId: 9888182,
     aggregateEvidence: {
       reviewsCount: 2538,
+      retrievableReviewCount: 2537,
       trustedTotals,
       scoreBuckets: advertisedScoreBuckets,
     },
@@ -327,7 +350,7 @@ test("accepts a later live snapshot while preserving the exact one-review shape"
   assert.equal(identified.advertisedReviewCount, 2538);
   assert.equal(identified.retrievableReviewCount, 2537);
 
-  const asserted = assertKnownSourceDiscrepancy({
+  const asserted = assertSourceGap({
     propertyKey: "central_sydney",
     bookingHotelId: 9888182,
     advertisedReviewCount: 2538,
@@ -335,7 +358,7 @@ test("accepts a later live snapshot while preserving the exact one-review shape"
     advertisedTrustedTotals: trustedTotals,
     advertisedScoreBuckets,
     retrievableScoreBuckets,
-    contractKind: KNOWN_SOURCE_DISCREPANCY.contractKind,
+    contractKind: SOURCE_GAP_CONTRACT.contractKind,
   });
   assert.deepEqual(asserted.scoreBucketGap, {
     value: "REVIEW_ADJ_AVERAGE_PASSABLE",
@@ -345,33 +368,8 @@ test("accepts a later live snapshot while preserving the exact one-review shape"
   });
 });
 
-test("dynamic evidence cannot fall below the independently verified baseline", () => {
-  const advertisedScoreBuckets = ADVERTISED_BUCKETS.map((item) => ({
-    ...item,
-    count:
-      item.value === "REVIEW_ADJ_GOOD"
-        ? item.count - 1
-        : item.count,
-  }));
-  const trustedTotals = TRUSTED_TOTALS.map((item) => ({
-    ...item,
-    count: item.count - 1,
-  }));
-  expectCode("ADVERTISED_COUNT_MISMATCH", () =>
-    identifyKnownSourceDiscrepancy({
-      propertyKey: "central_sydney",
-      bookingHotelId: 9888182,
-      aggregateEvidence: {
-        reviewsCount: 2536,
-        trustedTotals,
-        scoreBuckets: advertisedScoreBuckets,
-      },
-    }),
-  );
-});
-
 test("safe evidence derivation revalidates and rejects tampering", () => {
-  const evidence = assertKnownSourceDiscrepancy(fullEvidence());
+  const evidence = assertSourceGap(fullEvidence());
   expectCode("INVALID_ATTESTATION", () =>
     safeSourceDiscrepancyEvidence({
       ...evidence,

@@ -66,11 +66,8 @@ accuracy-gated live refetch.
 The status badge reports accepted publication coverage, for example **3 of 4
 properties verified**. A property labelled **Pending verification** has no
 accepted generation yet; neither label means a scraper process is currently
-running. A Central publication that passes the strict `source-gap` contract
-counts as verified and is labelled exactly **Verified with 1-review
-disclosure**. Its badge remains amber so the one-review discrepancy is always
-disclosed. The included SQLite has not reached that state: it still contains 0
-Central rows, and one qualifying live run remains required.
+running. A property published with a Booking source gap counts as verified and
+keeps an amber disclosure showing the advertised and retrievable counts.
 
 ## Motion and accessibility
 

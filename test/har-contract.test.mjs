@@ -79,7 +79,7 @@ test("sanitized Olympic fixture accepts the captured 12/12 unfiltered total cont
   );
 });
 
-test("sanitized Surry fixture rejects the captured 2194/2195 unfiltered mismatch", async () => {
+test("sanitized Surry fixture discloses the captured 2194/2195 unfiltered gap", async () => {
   const fixture = await readFixture("surry-total-mismatch.json");
   const observed = validateFixture(fixture);
 
@@ -93,25 +93,19 @@ test("sanitized Surry fixture rejects the captured 2194/2195 unfiltered mismatch
     [2195, 2195, 2195, 2195],
   );
 
-  assert.throws(
-    () => validateFixture(fixture, { unfiltered: true }),
-    (error) => {
-      assert.equal(
-        error?.message,
-        "Unfiltered aggregate totals disagree with reviewsCount",
-      );
-      assert.equal(
-        error?.details?.totalConsistency?.status,
-        "inconsistent",
-      );
-      assert.deepEqual(
-        error?.details?.totalConsistency?.disagreements.map(
-          ({ count }) => count,
-        ),
-        [2195, 2195, 2195, 2195],
-      );
-      return true;
-    },
+  // Booking really does advertise one review it will not paginate. The
+  // response stays valid and the gap is carried forward as a disclosure.
+  const unfiltered = validateFixture(fixture, { unfiltered: true });
+  assert.equal(unfiltered.reviewsCount, 2194);
+  assert.equal(
+    unfiltered.totalConsistency.status,
+    "inconsistent",
+  );
+  assert.deepEqual(
+    unfiltered.totalConsistency.disagreements.map(
+      ({ count }) => count,
+    ),
+    [2195, 2195, 2195, 2195],
   );
 });
 

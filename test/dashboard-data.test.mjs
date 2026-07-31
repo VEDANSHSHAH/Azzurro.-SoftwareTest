@@ -11,7 +11,7 @@ import {
   DashboardDataError,
   parseDashboardQuery,
 } from "../src/dashboard-data.mjs";
-import { KNOWN_SOURCE_DISCREPANCY } from "../src/source-discrepancy.mjs";
+import { SOURCE_GAP_CONTRACT } from "../src/source-discrepancy.mjs";
 
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
@@ -398,7 +398,7 @@ test("Central source gap is accepted only with the exact stored attestation", ()
     newest_records_sha256: HASH_B,
     discrepancy_contract_version: 1,
     discrepancy_contract_kind:
-      KNOWN_SOURCE_DISCREPANCY.contractKind,
+      SOURCE_GAP_CONTRACT.contractKind,
     discrepancy_property_key: "central_sydney",
     discrepancy_booking_hotel_id: 9888182,
     discrepancy_advertised_review_count: 2537,
@@ -420,7 +420,7 @@ test("Central source gap is accepted only with the exact stored attestation", ()
   assert.equal(accepted.status, "source-gap");
   assert.deepEqual(accepted.sourceDiscrepancy, {
     sourceDiscrepancyKind:
-      KNOWN_SOURCE_DISCREPANCY.contractKind,
+      SOURCE_GAP_CONTRACT.contractKind,
     advertisedReviews: 2537,
     retrievableReviews: 2536,
     sourceReviewGap: 1,

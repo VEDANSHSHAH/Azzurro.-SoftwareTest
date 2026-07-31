@@ -13,9 +13,9 @@ import {
 } from "./live-template.mjs";
 import { retryDecision } from "./retry.mjs";
 import {
-  assertKnownSourceDiscrepancy,
-  identifyKnownSourceDiscrepancy,
-  KNOWN_SOURCE_DISCREPANCY,
+  assertSourceGap,
+  identifySourceGap,
+  maxAllowedSourceGap,
 } from "./source-discrepancy.mjs";
 
 const PAGE_SIZE = 10;
@@ -61,29 +61,13 @@ function authoritativeAggregateEvidence(
   {
     visibleReviewCount = null,
     requireVisibleReviewCount = false,
-    property = null,
   } = {},
 ) {
   const totals = page?.totalConsistency?.totals ?? [];
   const sources = totals.map((item) => item?.source).sort();
-  const knownKey =
-    property?.key === KNOWN_SOURCE_DISCREPANCY.propertyKey;
-  const knownHotelId =
-    property?.hotelId ===
-    KNOWN_SOURCE_DISCREPANCY.bookingHotelId;
-  if (knownKey !== knownHotelId) {
-    throw new CollectionError(
-      "KNOWN_SOURCE_DISCREPANCY_DRIFT",
-      "A partial Central source-discrepancy identity match is not allowed",
-    );
-  }
-  const knownSourceDiscrepancy = knownKey && knownHotelId;
+  const totalStatus = page?.totalConsistency?.status ?? null;
   if (
-    !(
-      page?.totalConsistency?.status === "consistent" ||
-      (knownSourceDiscrepancy &&
-        page?.totalConsistency?.status === "inconsistent")
-    ) ||
+    !["consistent", "inconsistent"].includes(totalStatus) ||
     stableStringify(sources) !==
       stableStringify(TRUSTED_TOTAL_SOURCES)
   ) {
@@ -91,7 +75,7 @@ function authoritativeAggregateEvidence(
       "INSUFFICIENT_COUNT_EVIDENCE",
       "Authoritative collection requires all four trusted All totals",
       {
-        totalStatus: page?.totalConsistency?.status ?? null,
+        totalStatus,
         observedSources: sources,
       },
     );
@@ -120,21 +104,22 @@ function authoritativeAggregateEvidence(
     value,
     count: scoreCounts.get(value),
   }));
-  const advertisedCount = knownSourceDiscrepancy
-    ? scoreCounts.get("ALL")
-    : page.reviewsCount;
+  const advertisedCount = scoreCounts.get("ALL");
+  const sourceGap = Number.isSafeInteger(advertisedCount)
+    ? advertisedCount - page.reviewsCount
+    : null;
   if (
-    knownSourceDiscrepancy &&
-    (!Number.isSafeInteger(advertisedCount) ||
-      advertisedCount - page.reviewsCount !==
-        KNOWN_SOURCE_DISCREPANCY.gapCount)
+    sourceGap === null ||
+    sourceGap < 0 ||
+    sourceGap > maxAllowedSourceGap(advertisedCount)
   ) {
     throw new CollectionError(
-      "KNOWN_SOURCE_DISCREPANCY_DRIFT",
-      "Central's structured review count must remain exactly one below the accepted live advertised count",
+      "SOURCE_COUNT_GAP_OUT_OF_BOUNDS",
+      "Booking's advertised and retrievable review counts differ by more than the tolerated source gap",
       {
         structuredReviewCount: page.reviewsCount,
         advertisedReviewCount: advertisedCount ?? null,
+        maximumGap: maxAllowedSourceGap(advertisedCount),
       },
     );
   }
@@ -195,6 +180,7 @@ function authoritativeAggregateEvidence(
 
   return {
     reviewsCount: advertisedCount,
+    retrievableReviewCount: page.reviewsCount,
     trustedTotals: totals
       .map(({ source, count }) => ({ source, count }))
       .sort((left, right) =>
@@ -204,11 +190,9 @@ function authoritativeAggregateEvidence(
   };
 }
 
-function authoritativeAggregateDigest(page, property = null) {
+function authoritativeAggregateDigest(page) {
   return sha256(
-    stableStringify(
-      authoritativeAggregateEvidence(page, { property }),
-    ),
+    stableStringify(authoritativeAggregateEvidence(page)),
   );
 }
 
@@ -463,13 +447,11 @@ export async function runPropertyCanary({
     aggregateEvidence = authoritativeAggregateEvidence(newest, {
       visibleReviewCount,
       requireVisibleReviewCount: true,
-      property,
     });
     const oldestAggregateEvidence =
       authoritativeAggregateEvidence(oldest, {
         visibleReviewCount,
         requireVisibleReviewCount: true,
-        property,
       });
     aggregateDigest = sha256(stableStringify(aggregateEvidence));
     if (
@@ -482,15 +464,15 @@ export async function runPropertyCanary({
       );
     }
     try {
-      sourceDiscrepancy = identifyKnownSourceDiscrepancy({
+      sourceDiscrepancy = identifySourceGap({
         propertyKey: property.key,
         bookingHotelId: property.hotelId,
         aggregateEvidence,
       });
     } catch (error) {
       throw new CollectionError(
-        "KNOWN_SOURCE_DISCREPANCY_DRIFT",
-        "The configured known source discrepancy no longer matches its exact advertised evidence",
+        "SOURCE_COUNT_GAP_INVALID",
+        "Booking's advertised review evidence does not support a tolerated source gap",
         { causeCode: error?.code ?? "INVALID_EVIDENCE" },
       );
     }
@@ -647,7 +629,7 @@ export async function collectInventoryPhase({
     }
     if (
       expectedAggregateDigest !== null &&
-      authoritativeAggregateDigest(page, property) !==
+      authoritativeAggregateDigest(page) !==
         expectedAggregateDigest
     ) {
       throw new CollectionError(
@@ -657,9 +639,7 @@ export async function collectInventoryPhase({
     }
     if (expectedAggregateDigest !== null) {
       expectedScoreBuckets ??= new Map(
-        authoritativeAggregateEvidence(page, {
-          property,
-        }).scoreBuckets.map(
+        authoritativeAggregateEvidence(page).scoreBuckets.map(
           ({ value, count }) => [value, count],
         ),
       );
@@ -754,7 +734,7 @@ export async function collectInventoryPhase({
     }
     if (
       expectedAggregateDigest !== null &&
-      authoritativeAggregateDigest(empty, property) !==
+      authoritativeAggregateDigest(empty) !==
         expectedAggregateDigest
     ) {
       throw new CollectionError(
@@ -764,9 +744,7 @@ export async function collectInventoryPhase({
     }
     if (expectedAggregateDigest !== null) {
       expectedScoreBuckets ??= new Map(
-        authoritativeAggregateEvidence(empty, {
-          property,
-        }).scoreBuckets.map(
+        authoritativeAggregateEvidence(empty).scoreBuckets.map(
           ({ value, count }) => [value, count],
         ),
       );
@@ -815,7 +793,7 @@ export async function collectInventoryPhase({
     }
     if (
       expectedAggregateDigest !== null &&
-      authoritativeAggregateDigest(terminal, property) !==
+      authoritativeAggregateDigest(terminal) !==
         expectedAggregateDigest
     ) {
       throw new CollectionError(
@@ -843,7 +821,7 @@ export async function collectInventoryPhase({
     ].map(([value, count]) => ({ value, count }));
     if (sourceDiscrepancy !== null) {
       try {
-        discrepancyEvidence = assertKnownSourceDiscrepancy({
+        discrepancyEvidence = assertSourceGap({
           propertyKey: property.key,
           bookingHotelId: property.hotelId,
           advertisedReviewCount:
@@ -857,8 +835,8 @@ export async function collectInventoryPhase({
         });
       } catch (error) {
         throw new CollectionError(
-          "KNOWN_SOURCE_DISCREPANCY_DRIFT",
-          "The known source discrepancy no longer matches its exact attested shape",
+          "SOURCE_COUNT_GAP_INVALID",
+          "The collected inventory does not reconcile with Booking's advertised source gap",
           { cause: error?.message ?? String(error) },
         );
       }

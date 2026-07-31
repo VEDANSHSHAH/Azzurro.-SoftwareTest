@@ -12,23 +12,21 @@ it contains the complete table and index structure but no properties, reviews,
 collection runs, or publications. Each machine collects and verifies its own
 public review data before using the dashboard.
 
-Central Sydney is intentionally not presented as complete. Booking advertised
-2,537 reviews but returned 2,536 unique review cards in the diagnostic run; the
-one-review difference was isolated to the 5-7 score bucket. The code contains a
-strict Central-only attestation contract that can advance with new reviews, but
-it publishes only when the live source still proves exactly one missing card,
-the trusted totals and score buckets reconcile, the original count floor is not
-crossed, and both full inventories agree. The final live publication could not
-be performed from the restricted delivery environment, so it remains pending
-until a qualifying live run succeeds.
+## Booking advertised/retrievable count gap
 
-If a future Central run satisfies that complete contract and is atomically
-accepted, it counts as a verified property and the frontend labels it exactly
-**Verified with 1-review disclosure**. The badge remains amber so the
-one-review Booking source discrepancy stays visible; amber is a disclosure,
-not a downgrade of the accepted publication's verification status. This is a
-future accepted-state rule. Every fresh database starts with zero rows until a
-qualifying live run publishes an accepted collection.
+Booking shows an aggregate review total and separately paginates individual
+reviews. Occasionally the review list ends a small number short of the
+advertised total. The collector records this as a bounded source-gap disclosure
+only when all aggregate totals, score buckets, and two independent inventories
+reconcile.
+
+- An exact count is the normal case.
+- A gap is tolerated only up to `min(5, 1% of the advertised total)`.
+- The score-bucket shortfalls must add up to exactly the disclosed gap.
+- A wider or inconsistent gap fails closed and is not published.
+
+Every fresh database starts with zero rows until a qualifying live run publishes
+an accepted collection.
 
 The original Surry Hills property was replaced with Olympic Paddington as
 requested by the interviewer.
@@ -59,9 +57,8 @@ and separates work into six uncluttered workspaces:
 - **Data quality:** per-property advertised/retrievable counts, inventory and
   semantic parity, parser version, source-gap disclosure, database integrity,
   and publication status. Pending properties are labelled as awaiting
-  verification rather than implying that collection is actively running. An
-  accepted Central source-gap publication is counted as verified and labelled
-  **Verified with 1-review disclosure**, while retaining its amber disclosure.
+  verification rather than implying that collection is actively running. A
+  published source gap is counted as verified and retains an amber disclosure.
 
 Charts and cards use restrained entrance and data animations. All motion is
 disabled when the operating system requests reduced motion.
@@ -237,6 +234,8 @@ Accuracy is enforced before publication, not estimated afterwards:
 
 - Four independent advertised-count sources must agree.
 - Five disjoint Booking score buckets must reconcile to the advertised total.
+- The retrievable inventory must match the advertised total or satisfy the
+  bounded, disclosed source-gap rule above.
 - A non-empty property must expose a non-empty category-score profile.
 - Every review must satisfy the strict parser contract.
 - Source review IDs must be unique within a page and across the inventory.
@@ -358,7 +357,7 @@ not have to add to 100%.
 ## Commands
 
 ```bash
-npm test                         # 224 scraper/backend tests
+npm test                         # 228 scraper/backend tests
 npm run test:coverage
 npm run dashboard:api
 npm run dashboard:dev
@@ -386,7 +385,7 @@ npm test --prefix dashboard
 
 ## Verification completed
 
-- Root suite: **224 tests**, **218 passed**, **0 failed**, **6 skipped**.
+- Root suite: **228 tests**, **222 passed**, **0 failed**, **6 skipped**.
   The skipped cases require the original private HAR captures; equivalent
   sanitized contract fixtures run in the normal suite.
 - Dashboard: ESLint passed, TypeScript passed, five-environment production
@@ -429,9 +428,10 @@ keys, session cookies, or personal account credentials are required or stored.
 
 - Booking can change its public page or structured response, rate-limit
   requests, or present a challenge. The collector fails closed rather than
-  silently publishing partial data.
-- Central Sydney still needs one complete live run in an unrestricted network
-  environment.
+  silently publishing partial data. Use `--headed --interactive-challenge` if
+  a normal verification screen is shown.
+- A disclosed source gap means Booking advertised reviews that its own list did
+  not return; those rows cannot be collected without being served by Booking.
 - Full refreshes prioritize proof over speed and can take time for properties
   with thousands of reviews.
 - Collection is manually started; no scheduler, watchdog, automatic restart, or

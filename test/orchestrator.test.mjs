@@ -357,7 +357,7 @@ test("Central publishes 2,536 only under the exact persisted 2,537 source-gap at
     assert.equal(result.advertisedReviewCount, 2537);
     assert.deepEqual(result.sourceDiscrepancy, {
       sourceDiscrepancyKind:
-        "central_sydney_known_source_gap_v1",
+        "booking_source_count_gap_v1",
       advertisedReviews: 2537,
       retrievableReviews: 2536,
       sourceReviewGap: 1,
@@ -388,7 +388,7 @@ test("Central publishes 2,536 only under the exact persisted 2,537 source-gap at
       storage.getSourceDiscrepancyAttestation(result.runId);
     assert.equal(
       discrepancy.contractKind,
-      "central_sydney_known_source_gap_v1",
+      "booking_source_count_gap_v1",
     );
     assert.equal(discrepancy.advertisedReviewCount, 2537);
     assert.equal(discrepancy.retrievableReviewCount, 2536);
