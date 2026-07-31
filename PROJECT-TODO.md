@@ -174,6 +174,11 @@ Last updated: 31 July 2026, after scraper, dashboard, and browser QA.
   and secret scan. Dependency lockfiles matched the tested installations; this
   restricted runner could not exercise a new `npm ci` because it was denied
   access to its npm cache.
+- [x] Verify a fresh clone from the submitted repository: root dependencies
+  installed cleanly, the 224-test suite passed (218 executed; 6 optional HAR
+  checks skipped), and the dashboard production build plus 2/2 rendered checks
+  passed. The final staged-content scan found no prohibited assistant-brand
+  references or credentials.
 
 ## Deliberate non-goals
 
