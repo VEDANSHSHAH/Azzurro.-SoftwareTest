@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  identifyKnownSourceDiscrepancy,
-  KNOWN_SOURCE_DISCREPANCY,
-} from "./source-discrepancy.mjs";
+import { maxAllowedSourceGap } from "./source-discrepancy.mjs";
 import { sydneyDateFromEpoch } from "./date-utils.mjs";
 import {
   canonicalizeReviewPhotoUrl,
@@ -370,6 +367,8 @@ function validateSorters(value) {
   assertUnique(sorters, (sorter) => sorter.value, "sorters");
   return sorters;
 }
+
+const TRUSTED_TOTAL_SOURCE_COUNT = 4;
 
 function findTotal(filters, value, source) {
   const match = filters.find((filter) => filter.value === value);
@@ -902,36 +901,22 @@ export function validateReviewListResponse(
     unfiltered,
   });
   if (totalConsistency.status === "inconsistent") {
-    let exactKnownSourceDiscrepancy = false;
+    // Booking's aggregate filter counts can run slightly ahead of the
+    // paginated inventory. Tolerate a small, consistently advertised gap so a
+    // whole property is not rejected over the source's own rounding.
+    const advertised = totalConsistency.totals[0]?.count;
+    const advertisedAgrees =
+      totalConsistency.totals.length === TRUSTED_TOTAL_SOURCE_COUNT &&
+      totalConsistency.totals.every(
+        ({ count }) => count === advertised,
+      );
+    const gap = advertisedAgrees ? advertised - list.reviewsCount : null;
     if (
-      unfiltered &&
-      propertyKey === KNOWN_SOURCE_DISCREPANCY.propertyKey
+      !unfiltered ||
+      gap === null ||
+      gap <= 0 ||
+      gap > maxAllowedSourceGap(advertised)
     ) {
-      try {
-        const advertisedReviewCount =
-          totalConsistency.totals.find(
-            ({ source }) => source === "reviewScoreFilter.ALL",
-          )?.count;
-        const identified = identifyKnownSourceDiscrepancy({
-          propertyKey,
-          bookingHotelId:
-            KNOWN_SOURCE_DISCREPANCY.bookingHotelId,
-          aggregateEvidence: {
-            reviewsCount: advertisedReviewCount,
-            trustedTotals: totalConsistency.totals,
-            scoreBuckets: reviewScoreFilters
-              .filter(({ value }) => value !== "ALL")
-              .map(({ value, count }) => ({ value, count })),
-          },
-        });
-        exactKnownSourceDiscrepancy =
-          list.reviewsCount ===
-          identified.retrievableReviewCount;
-      } catch {
-        exactKnownSourceDiscrepancy = false;
-      }
-    }
-    if (!exactKnownSourceDiscrepancy) {
       throw new ContractError(
         "Unfiltered aggregate totals disagree with reviewsCount",
         { totalConsistency },

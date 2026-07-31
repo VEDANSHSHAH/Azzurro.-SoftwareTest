@@ -11,7 +11,7 @@ import {
   REVIEW_INSIGHTS_VERSION,
 } from "./review-insights.mjs";
 import {
-  assertKnownSourceDiscrepancy,
+  assertSourceGap,
   safeSourceDiscrepancyEvidence,
 } from "./source-discrepancy.mjs";
 
@@ -390,7 +390,7 @@ function validatePropertyEvidence(property, presentCount) {
         property.discrepancy_retrievable_score_buckets_json,
         null,
       );
-      const normalized = assertKnownSourceDiscrepancy({
+      const normalized = assertSourceGap({
         propertyKey: property.discrepancy_property_key,
         bookingHotelId: property.discrepancy_booking_hotel_id,
         advertisedReviewCount:

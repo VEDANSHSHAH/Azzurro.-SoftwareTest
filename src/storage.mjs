@@ -9,8 +9,9 @@ import {
   reviewScoreMatchesRange,
 } from "./live-template.mjs";
 import {
-  assertKnownSourceDiscrepancy,
-  KNOWN_SOURCE_DISCREPANCY,
+  assertSourceGap,
+  SOURCE_GAP_CONTRACT,
+  maxAllowedSourceGap,
 } from "./source-discrepancy.mjs";
 
 export class StorageError extends Error {
@@ -169,11 +170,7 @@ function countEvidenceInteger(value, label) {
   return value;
 }
 
-function normalizeCountEvidence(
-  value,
-  reportedReviewCount,
-  { knownSourceDiscrepancy = false } = {},
-) {
+function normalizeCountEvidence(value, reportedReviewCount) {
   exactObjectKeys(
     value,
     ["reviewsCount", "trustedTotals", "scoreBuckets"],
@@ -190,9 +187,9 @@ function normalizeCountEvidence(
       { reviewsCount, reportedReviewCount },
     );
   }
-  let advertisedCount = knownSourceDiscrepancy
-    ? null
-    : reviewsCount;
+  // Booking advertises the total through its four All filters. That value, not
+  // the paginated reviewsCount, is the authoritative advertised count.
+  let advertisedCount = null;
   if (
     !Array.isArray(value.trustedTotals) ||
     value.trustedTotals.length !==
@@ -249,17 +246,15 @@ function normalizeCountEvidence(
       "INVALID_COUNT_EVIDENCE",
     );
   }
+  const gapCount = advertisedCount - reviewsCount;
   if (
-    knownSourceDiscrepancy &&
-    (advertisedCount <
-      KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedReviewCount ||
-      advertisedCount - reviewsCount !==
-        KNOWN_SOURCE_DISCREPANCY.gapCount)
+    gapCount < 0 ||
+    gapCount > maxAllowedSourceGap(advertisedCount)
   ) {
     throw new StorageError(
-      "Known source discrepancy must preserve its verified baseline and exactly one advertised-but-unretrievable review",
+      "Advertised and retrievable review counts differ by more than the tolerated source gap",
       "COUNT_EVIDENCE_MISMATCH",
-      { advertisedCount, reviewsCount },
+      { advertisedCount, reviewsCount, gapCount },
     );
   }
 
@@ -320,19 +315,6 @@ function normalizeCountEvidence(
       { bucketSum, reviewsCount, advertisedCount },
     );
   }
-  if (
-    knownSourceDiscrepancy &&
-    bucketByValue.get(
-      KNOWN_SOURCE_DISCREPANCY.targetScoreBucket,
-    ) <
-      KNOWN_SOURCE_DISCREPANCY.minimumAdvertisedTargetBucketCount
-  ) {
-    throw new StorageError(
-      "Known source discrepancy advertised 5-7 bucket cannot fall below its verified baseline",
-      "COUNT_EVIDENCE_MISMATCH",
-    );
-  }
-
   return {
     reviewsCount,
     trustedTotals: TRUSTED_COUNT_TOTAL_SOURCES.map((source) => ({
@@ -1698,9 +1680,6 @@ export class ReviewStorage {
         normalized = normalizeCountEvidence(
           parsed,
           row.reported_review_count,
-          {
-            knownSourceDiscrepancy: contractKind !== null,
-          },
         );
       } catch (error) {
         if (error instanceof StorageError) {
@@ -1773,26 +1752,24 @@ export class ReviewStorage {
     if (!identity) {
       throw new StorageError("Run was not found", "RUN_NOT_FOUND");
     }
-    const contract = KNOWN_SOURCE_DISCREPANCY;
+    const contract = SOURCE_GAP_CONTRACT;
     const advertisedCount =
       sourceDiscrepancy.advertisedReviewCount;
     const attestedRetrievableCount =
       sourceDiscrepancy.retrievableReviewCount;
+    const gapCount = advertisedCount - attestedRetrievableCount;
     if (
-      identity.property_key !== contract.propertyKey ||
-      identity.booking_hotel_id !== contract.bookingHotelId ||
-      sourceDiscrepancy.propertyKey !== contract.propertyKey ||
-      sourceDiscrepancy.bookingHotelId !== contract.bookingHotelId ||
+      sourceDiscrepancy.propertyKey !== identity.property_key ||
+      sourceDiscrepancy.bookingHotelId !== identity.booking_hotel_id ||
       sourceDiscrepancy.contractKind !== contract.contractKind ||
       !Number.isSafeInteger(advertisedCount) ||
       !Number.isSafeInteger(attestedRetrievableCount) ||
-      advertisedCount < contract.minimumAdvertisedReviewCount ||
-      advertisedCount - attestedRetrievableCount !==
-        contract.gapCount ||
+      gapCount <= 0 ||
+      gapCount > maxAllowedSourceGap(advertisedCount) ||
       retrievableCount !== attestedRetrievableCount
     ) {
       throw new StorageError(
-        "The requested source discrepancy does not match the exact known contract",
+        "The requested source gap does not match its attested contract",
         "SOURCE_DISCREPANCY_MISMATCH",
         {
           propertyKey: identity.property_key,
@@ -1847,7 +1824,6 @@ export class ReviewStorage {
       advertisedEvidence = normalizeCountEvidence(
         JSON.parse(pageEvidence.evidence_json),
         pageEvidence.reported_review_count,
-        { knownSourceDiscrepancy: true },
       );
     } catch (error) {
       throw new StorageError(
@@ -1911,7 +1887,7 @@ export class ReviewStorage {
       }));
     let normalized;
     try {
-      normalized = assertKnownSourceDiscrepancy({
+      normalized = assertSourceGap({
         propertyKey: identity.property_key,
         bookingHotelId: identity.booking_hotel_id,
         advertisedReviewCount: advertisedCount,
@@ -2397,12 +2373,6 @@ export class ReviewStorage {
     const property = this.#db
       .prepare("SELECT * FROM properties WHERE property_id = ?")
       .get(run.property_id);
-    const knownSourceCountEvidence =
-      authoritativeRun &&
-      property?.property_key ===
-        KNOWN_SOURCE_DISCREPANCY.propertyKey &&
-      property?.booking_hotel_id ===
-        KNOWN_SOURCE_DISCREPANCY.bookingHotelId;
     if (
       reviews.length < requestedLimit &&
       sourceOffset + reviews.length < reportedReviewCount
@@ -2422,14 +2392,7 @@ export class ReviewStorage {
     const normalizedCountEvidence =
       countEvidence == null
         ? null
-        : normalizeCountEvidence(
-            countEvidence,
-            reportedReviewCount,
-            {
-              knownSourceDiscrepancy:
-                knownSourceCountEvidence,
-            },
-          );
+        : normalizeCountEvidence(countEvidence, reportedReviewCount);
     const countEvidenceJson =
       normalizedCountEvidence == null
         ? null
@@ -2520,10 +2483,6 @@ export class ReviewStorage {
               existingNormalized = normalizeCountEvidence(
                 JSON.parse(existingCountEvidence.evidence_json),
                 existingPage.reported_review_count,
-                {
-                  knownSourceDiscrepancy:
-                    knownSourceCountEvidence,
-                },
               );
             } catch {
               throw new StorageError(
