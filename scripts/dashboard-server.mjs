@@ -5,6 +5,11 @@ import {
   createDashboardDataService,
   DashboardDataError,
 } from "../src/dashboard-data.mjs";
+import {
+  CollectJobError,
+  createCollectJobRunner,
+} from "../src/collect-job.mjs";
+import { loadProperties } from "../src/property-config.mjs";
 
 const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
@@ -39,6 +44,12 @@ const service = createDashboardDataService({
   propertiesPath,
 });
 
+const collectRunner = createCollectJobRunner({
+  projectRoot,
+  databasePath: dbPath,
+  propertiesPath,
+});
+
 function allowedOrigin(value) {
   if (!value) return null;
   try {
@@ -55,11 +66,39 @@ function allowedOrigin(value) {
   return null;
 }
 
+/*
+ * The collect endpoints start a real browser process, so they are guarded
+ * beyond ordinary CORS. The listener is already bound to loopback; these checks
+ * additionally stop a page in the user's browser from driving the collector via
+ * a cross-site request or a rebound DNS name.
+ */
+const COLLECT_INTENT_HEADER = "x-azzurro-collect";
+
+function isLoopbackHost(value) {
+  if (!value) return false;
+  const withoutPort = value.replace(/:\d+$/, "").toLowerCase();
+  return (
+    withoutPort === "127.0.0.1" ||
+    withoutPort === "localhost" ||
+    withoutPort === "[::1]" ||
+    withoutPort === "::1"
+  );
+}
+
+function collectRequestIsTrusted(request) {
+  if (!isLoopbackHost(request.headers.host)) return false;
+  /* A cross-origin page cannot set this header without a preflight, and the
+     preflight only succeeds for loopback origins. */
+  if (request.headers[COLLECT_INTENT_HEADER] !== "1") return false;
+  const origin = request.headers.origin;
+  return !origin || allowedOrigin(origin) !== null;
+}
+
 function responseHeaders(request) {
   const origin = allowedOrigin(request.headers.origin);
   return {
-    "Access-Control-Allow-Headers": "Accept, Content-Type",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": `Accept, Content-Type, ${COLLECT_INTENT_HEADER}`,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     ...(origin
       ? {
           "Access-Control-Allow-Origin": origin,
@@ -80,16 +119,91 @@ function sendJson(request, response, status, value) {
   response.end(JSON.stringify(value));
 }
 
+function readJsonBody(request, limitBytes = 8192) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    let raw = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > limitBytes) {
+        rejectPromise(new CollectJobError("BODY_TOO_LARGE", "Request too large."));
+        request.destroy();
+      }
+    });
+    request.on("end", () => {
+      if (!raw.trim()) {
+        resolvePromise({});
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(raw));
+      } catch {
+        rejectPromise(new CollectJobError("INVALID_JSON", "Invalid JSON body."));
+      }
+    });
+    request.on("error", () =>
+      rejectPromise(new CollectJobError("BODY_READ_FAILED", "Body read failed.")),
+    );
+  });
+}
+
+async function handleCollectStart(request, response) {
+  if (!collectRequestIsTrusted(request)) {
+    sendJson(request, response, 403, {
+      error: "Collection can only be started from the local dashboard.",
+      code: "COLLECT_FORBIDDEN",
+    });
+    return;
+  }
+  let body;
+  try {
+    body = await readJsonBody(request);
+  } catch (error) {
+    sendJson(request, response, 400, {
+      error: error.message,
+      code: error.code ?? "INVALID_BODY",
+    });
+    return;
+  }
+
+  const configured = await loadProperties(propertiesPath);
+  const configuredKeys = configured.map((entry) => entry.key);
+  const requested =
+    Array.isArray(body.properties) && body.properties.length > 0
+      ? body.properties
+      : configuredKeys;
+  const unknown = requested.filter((key) => !configuredKeys.includes(key));
+  if (unknown.length > 0) {
+    sendJson(request, response, 400, {
+      error: `Unknown property: ${unknown.join(", ")}`,
+      code: "COLLECT_UNKNOWN_PROPERTY",
+    });
+    return;
+  }
+
+  try {
+    const started = collectRunner.start({
+      propertyKeys: requested,
+      headed: body.headed !== false,
+      interactiveChallenge: body.interactiveChallenge !== false,
+    });
+    sendJson(request, response, 202, started);
+  } catch (error) {
+    if (error instanceof CollectJobError) {
+      sendJson(request, response, 409, {
+        error: error.message,
+        code: error.code,
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
 const server = createServer((request, response) => {
   if (request.method === "OPTIONS") {
     response.writeHead(204, responseHeaders(request));
     response.end();
-    return;
-  }
-  if (request.method !== "GET") {
-    sendJson(request, response, 405, {
-      error: "Only GET requests are supported.",
-    });
     return;
   }
   let url;
@@ -97,6 +211,50 @@ const server = createServer((request, response) => {
     url = new URL(request.url ?? "/", `http://${host}:${port}`);
   } catch {
     sendJson(request, response, 400, { error: "Invalid request URL." });
+    return;
+  }
+
+  if (url.pathname === "/api/collect") {
+    if (request.method === "POST") {
+      handleCollectStart(request, response).catch(() => {
+        sendJson(request, response, 500, {
+          error: "The collection could not be started.",
+        });
+      });
+      return;
+    }
+    if (request.method === "GET") {
+      sendJson(request, response, 200, collectRunner.status());
+      return;
+    }
+    if (request.method === "DELETE") {
+      if (!collectRequestIsTrusted(request)) {
+        sendJson(request, response, 403, {
+          error: "Collection can only be controlled from the local dashboard.",
+          code: "COLLECT_FORBIDDEN",
+        });
+        return;
+      }
+      try {
+        sendJson(request, response, 200, collectRunner.cancel());
+      } catch (error) {
+        sendJson(request, response, 409, {
+          error: error.message,
+          code: error.code ?? "COLLECT_NOT_RUNNING",
+        });
+      }
+      return;
+    }
+    sendJson(request, response, 405, {
+      error: "Unsupported method for /api/collect.",
+    });
+    return;
+  }
+
+  if (request.method !== "GET") {
+    sendJson(request, response, 405, {
+      error: "Only GET requests are supported.",
+    });
     return;
   }
   if (url.pathname === "/api/health") {
@@ -139,6 +297,7 @@ server.listen(port, host, () => {
 });
 
 function stop(signal) {
+  collectRunner.dispose();
   server.close((error) => {
     if (error) {
       process.stderr.write(`[dashboard] shutdown failed after ${signal}\n`);

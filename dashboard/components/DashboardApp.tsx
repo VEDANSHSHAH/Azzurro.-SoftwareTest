@@ -5,6 +5,11 @@ import { AppHeader } from "./AppHeader";
 import { GlobalFilters } from "./GlobalFilters";
 import { Sidebar } from "./Sidebar";
 import { ErrorState, LoadingState, NoPublishedDataState } from "./ui/States";
+import {
+  CollectButton,
+  CollectProgress,
+  useCollectJob,
+} from "./CollectControl";
 import { InsightsView } from "./views/InsightsView";
 import { OverviewView } from "./views/OverviewView";
 import { PropertiesView } from "./views/PropertiesView";
@@ -154,6 +159,9 @@ export function DashboardApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const firstRequest = useRef(true);
+  const collect = useCollectJob(
+    useCallback(() => setRefreshToken((value) => value + 1), []),
+  );
 
   /* URL state is intentionally applied after hydration so server and first
      client markup remain identical in the local vinext shell. */
@@ -310,7 +318,19 @@ export function DashboardApp() {
       );
     }
     if (!data) return null;
-    if (data.properties.length === 0) return <NoPublishedDataState />;
+    if (data.properties.length === 0) {
+      return (
+        <NoPublishedDataState
+          action={
+            <CollectButton
+              controller={collect}
+              label="Collect reviews now"
+              variant="primary"
+            />
+          }
+        />
+      );
+    }
     if (view === "overview") {
       return <OverviewView data={data} onNavigate={navigate} />;
     }
@@ -349,11 +369,21 @@ export function DashboardApp() {
       />
       <div className="app-main">
         <AppHeader
+          collect={collect}
           data={data}
           onMenuOpen={() => setSidebarOpen(true)}
           onRefresh={() => setRefreshToken((value) => value + 1)}
           refreshing={refreshing}
           view={view}
+        />
+        <CollectProgress
+          controller={collect}
+          names={Object.fromEntries(
+            (data?.properties ?? []).map((property) => [
+              property.propertyKey,
+              property.propertyName,
+            ]),
+          )}
         />
         {view !== "reviews" ? (
           <GlobalFilters

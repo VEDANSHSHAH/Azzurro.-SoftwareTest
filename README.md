@@ -77,6 +77,11 @@ and separates work into six uncluttered workspaces:
 Charts and cards use restrained entrance and data animations. All motion is
 disabled when the operating system requests reduced motion.
 
+A **Collect reviews** action is always available from the header (and shown
+prominently when no data has been published yet). It starts the same
+accuracy-gated collector documented below, with live per-property progress,
+without requiring a terminal.
+
 ## Quick start
 
 For a short operator-oriented version of these steps, see
@@ -98,18 +103,6 @@ npm ci --prefix dashboard
 npx playwright install chromium
 ```
 
-### Collect initial data
-
-Run each property separately. The collector creates and populates the local
-SQLite file only after it has verified a complete collection.
-
-```bash
-npm run refresh:reviews -- --property olympic_paddington
-npm run refresh:reviews -- --property potts_point
-npm run refresh:reviews -- --property central_sydney
-npm run refresh:reviews -- --property darling_harbour
-```
-
 ### Run the local application
 
 ```bash
@@ -123,13 +116,8 @@ The command starts:
 - the read-only dashboard data service on `127.0.0.1:4318`; and
 - the frontend on `127.0.0.1:3000`.
 
-The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only;
-run the collection commands above first to populate the dashboard with accepted
-data.
-
-No machine-specific browser path is embedded. After the install commands above,
-the collector uses Playwright's managed Chromium on Windows, macOS, or Linux.
-An installed Chrome path is an optional override, not a requirement.
+The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only,
+so collect reviews from the dashboard itself before there is anything to show.
 
 To start the two processes separately:
 
@@ -138,7 +126,32 @@ npm run dashboard:api
 npm run dashboard:dev
 ```
 
-## Running the collector
+### Collect initial data
+
+No terminal command is required. The dashboard shows a **Collect reviews now**
+button whenever no data has been published yet, and a **Collect reviews**
+action in the header once data exists. Clicking it opens a real browser window
+and runs the same accuracy-gated collector as the CLI for all four
+properties, publishing to the local SQLite file only after every check
+succeeds. If Booking shows a human-verification page, complete it in the
+opened browser window; collection continues automatically afterward.
+Per-property progress is shown live under the header, and the dashboard
+reloads on its own once a property publishes.
+
+No machine-specific browser path is embedded. After the install commands
+above, the collector uses Playwright's managed Chromium on Windows, macOS, or
+Linux. An installed Chrome path is an optional override, not a requirement.
+
+The button calls the same `scripts/scrape.mjs` collector documented below, so
+the terminal commands remain available for scripting, CI, or collecting a
+single named property without opening the dashboard.
+
+## Running the collector from a terminal
+
+The dashboard's **Collect reviews** button (see Quick start above) runs this
+same collector for all four properties without a terminal. The commands below
+are the equivalent terminal path, useful for scripting, CI, or a single named
+property.
 
 The four property URLs and Booking hotel IDs are fixed in
 `config/properties.json`, so normal runs do not rediscover them.
@@ -162,8 +175,9 @@ npm run refresh:reviews -- --property olympic_paddington
 ```
 
 This is the command that contacts Booking and reconciles new, changed, and
-missing reviews. The dashboard's **Reload dashboard** button only reloads the
-latest accepted SQLite publication; it never starts a scrape.
+missing reviews; the dashboard's **Collect reviews** button runs it the same
+way. The dashboard's separate **Reload dashboard** button only reloads the
+latest accepted SQLite publication and never starts a scrape on its own.
 
 Run selected properties sequentially:
 

@@ -14,6 +14,7 @@ import {
   isAcceptedPublication,
   SOURCE_GAP_VERIFIED_LABEL,
 } from "../lib/publication-status";
+import { CollectButton, type CollectController } from "./CollectControl";
 
 const VIEW_COPY: Record<
   DashboardView,
@@ -61,6 +62,7 @@ interface AppHeaderProps {
   view: DashboardView;
   data: DashboardPayload | null;
   refreshing: boolean;
+  collect: CollectController;
   onMenuOpen: () => void;
   onRefresh: () => void;
 }
@@ -69,6 +71,7 @@ export function AppHeader({
   view,
   data,
   refreshing,
+  collect,
   onMenuOpen,
   onRefresh,
 }: AppHeaderProps) {
@@ -124,20 +127,23 @@ export function AppHeader({
             {formatLocalDate(data?.overview.dataThrough ?? null, true)}
           </span>
         </div>
-        <button
-          className="button button--secondary refresh-button"
-          disabled={refreshing}
-          onClick={onRefresh}
-          title="Reload the latest accepted SQLite data; this does not run the Booking collector"
-          type="button"
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={refreshing ? "is-spinning" : ""}
-            size={16}
-          />
-          Reload dashboard
-        </button>
+        <div className="app-header__actions">
+          <button
+            className="button button--secondary refresh-button"
+            disabled={refreshing}
+            onClick={onRefresh}
+            title="Reload the latest accepted SQLite data; this does not run the Booking collector"
+            type="button"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={refreshing ? "is-spinning" : ""}
+              size={16}
+            />
+            Reload dashboard
+          </button>
+          <CollectButton controller={collect} />
+        </div>
       </div>
       <div className="app-header__copy">
         <p className="eyebrow">{copy.eyebrow}</p>
