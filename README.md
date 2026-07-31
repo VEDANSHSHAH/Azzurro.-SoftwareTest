@@ -113,6 +113,12 @@ The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only;
 run the collection commands above first to populate the dashboard with accepted
 data.
 
+The dashboard header also has a **Start collection** button. Select a property
+in the Property filter first if you do not want to collect every configured
+property. The button opens the same visible browser as the command-line
+collector and reports its real local status. It cannot start a second run while
+one is active, and incomplete results are not published.
+
 No machine-specific browser path is embedded. After the install commands above,
 the collector uses Playwright's managed Chromium on Windows, macOS, or Linux.
 An installed Chrome path is an optional override, not a requirement.

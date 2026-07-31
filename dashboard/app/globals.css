@@ -553,6 +553,27 @@ select:focus-visible {
   margin-left: auto;
 }
 
+.collection-button {
+  margin-left: auto;
+}
+
+.collection-status {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0.7rem 0 0 auto;
+  max-width: 44rem;
+  text-align: right;
+}
+
+.collection-status--running {
+  color: var(--brand-navy);
+}
+
+.collection-status--failed {
+  color: var(--danger);
+}
+
 .is-spinning {
   animation: spin 0.8s linear infinite;
 }

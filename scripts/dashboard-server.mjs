@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createDashboardDataService,
   DashboardDataError,
 } from "../src/dashboard-data.mjs";
+import { loadProperties } from "../src/property-config.mjs";
 
 const projectRoot = resolve(
   fileURLToPath(new URL("..", import.meta.url)),
@@ -38,6 +40,20 @@ const service = createDashboardDataService({
   dbPath,
   propertiesPath,
 });
+const configuredProperties = await loadProperties(propertiesPath);
+const configuredPropertyKeys = new Set(
+  configuredProperties.map((property) => property.key),
+);
+
+let activeCollection = null;
+let collectionStatus = {
+  status: "idle",
+  propertyKeys: [],
+  startedAt: null,
+  finishedAt: null,
+  exitCode: null,
+  message: "No collection has been started in this local session.",
+};
 
 function allowedOrigin(value) {
   if (!value) return null;
@@ -59,7 +75,7 @@ function responseHeaders(request) {
   const origin = allowedOrigin(request.headers.origin);
   return {
     "Access-Control-Allow-Headers": "Accept, Content-Type",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     ...(origin
       ? {
           "Access-Control-Allow-Origin": origin,
@@ -75,21 +91,128 @@ function responseHeaders(request) {
   };
 }
 
+function collectionPayload() {
+  return {
+    ...collectionStatus,
+    running: activeCollection !== null,
+  };
+}
+
+function readJsonBody(request) {
+  return new Promise((resolveBody, reject) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 2_048) {
+        reject(new Error("Request body is too large."));
+        request.destroy();
+      }
+    });
+    request.on("end", () => {
+      if (!body) {
+        resolveBody({});
+        return;
+      }
+      try {
+        resolveBody(JSON.parse(body));
+      } catch {
+        reject(new Error("Request body must be valid JSON."));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function selectedPropertyKeys(value) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Collection options must be an object.");
+  }
+  const { propertyKeys } = value;
+  if (propertyKeys === undefined) {
+    return configuredProperties.map((property) => property.key);
+  }
+  if (!Array.isArray(propertyKeys) || propertyKeys.length === 0) {
+    return configuredProperties.map((property) => property.key);
+  }
+  if (
+    propertyKeys.some(
+      (propertyKey) =>
+        typeof propertyKey !== "string" || !configuredPropertyKeys.has(propertyKey),
+    )
+  ) {
+    throw new Error("One or more selected properties are not configured.");
+  }
+  return [...new Set(propertyKeys)];
+}
+
+function startCollection(propertyKeys) {
+  if (activeCollection) {
+    const error = new Error("A collection is already running.");
+    error.code = "COLLECTION_RUNNING";
+    throw error;
+  }
+  const child = spawn(
+    process.execPath,
+    [
+      "scripts/scrape.mjs",
+      "--mode",
+      "full",
+      "--property",
+      propertyKeys.join(","),
+      "--headed",
+      "--interactive-challenge",
+    ],
+    {
+      cwd: projectRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: false,
+    },
+  );
+  activeCollection = child;
+  collectionStatus = {
+    status: "running",
+    propertyKeys,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    message:
+      "Collection is running in a visible browser. Complete any Booking verification there; only complete verified results are published.",
+  };
+  child.on("error", (error) => {
+    activeCollection = null;
+    collectionStatus = {
+      ...collectionStatus,
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      message: `The collector could not start: ${error.message}`,
+    };
+  });
+  child.on("close", (exitCode) => {
+    activeCollection = null;
+    collectionStatus = {
+      ...collectionStatus,
+      status: exitCode === 0 ? "completed" : "failed",
+      finishedAt: new Date().toISOString(),
+      exitCode,
+      message:
+        exitCode === 0
+          ? "Collection finished. Reloading the dashboard will show any newly verified publications."
+          : "Collection stopped without publishing a complete verified result for at least one property. Check the visible browser and run it again when ready.",
+    };
+  });
+  return collectionPayload();
+}
+
 function sendJson(request, response, status, value) {
   response.writeHead(status, responseHeaders(request));
   response.end(JSON.stringify(value));
 }
 
-const server = createServer((request, response) => {
+const server = createServer(async (request, response) => {
   if (request.method === "OPTIONS") {
     response.writeHead(204, responseHeaders(request));
     response.end();
-    return;
-  }
-  if (request.method !== "GET") {
-    sendJson(request, response, 405, {
-      error: "Only GET requests are supported.",
-    });
     return;
   }
   let url;
@@ -97,6 +220,32 @@ const server = createServer((request, response) => {
     url = new URL(request.url ?? "/", `http://${host}:${port}`);
   } catch {
     sendJson(request, response, 400, { error: "Invalid request URL." });
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/collection") {
+    sendJson(request, response, 200, collectionPayload());
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/collection") {
+    try {
+      const body = await readJsonBody(request);
+      const propertyKeys = selectedPropertyKeys(body);
+      sendJson(request, response, 202, startCollection(propertyKeys));
+    } catch (error) {
+      const status = error?.code === "COLLECTION_RUNNING" ? 409 : 400;
+      sendJson(request, response, status, {
+        error:
+          error instanceof Error
+            ? error.message
+            : "The collection could not be started.",
+      });
+    }
+    return;
+  }
+  if (request.method !== "GET") {
+    sendJson(request, response, 405, {
+      error: "Only GET requests are supported.",
+    });
     return;
   }
   if (url.pathname === "/api/health") {
@@ -139,6 +288,7 @@ server.listen(port, host, () => {
 });
 
 function stop(signal) {
+  activeCollection?.kill("SIGTERM");
   server.close((error) => {
     if (error) {
       process.stderr.write(`[dashboard] shutdown failed after ${signal}\n`);

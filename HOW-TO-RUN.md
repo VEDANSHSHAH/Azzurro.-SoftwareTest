@@ -37,6 +37,10 @@ The scraper reads each property twice, avoids duplicates, and only saves a
 result after the full collection has been checked. Larger properties can take
 several minutes. If a run fails, it does not replace previously accepted data.
 
+Alternatively, start the same collection from the dashboard: select one or
+more properties in the Property filter, then click **Start collection**. It
+opens the same visible browser and only publishes a fully verified result.
+
 ## 3. Open the dashboard
 
 After at least one property has been collected, run:
