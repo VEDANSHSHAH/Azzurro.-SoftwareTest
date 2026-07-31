@@ -79,6 +79,9 @@ disabled when the operating system requests reduced motion.
 
 ## Quick start
 
+For a short operator-oriented version of these steps, see
+[HOW-TO-RUN.md](HOW-TO-RUN.md).
+
 ### Requirements
 
 - Node.js 22.13 or newer
