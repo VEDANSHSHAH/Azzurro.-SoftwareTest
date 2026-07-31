@@ -164,17 +164,13 @@ test("captured Surry unfiltered totals expose the known 2194/2195 disagreement",
     observed.totalConsistency.totals.map((total) => total.count),
     [2195, 2195, 2195, 2195],
   );
-  assert.throws(
-    () =>
-      validateReviewListResponse(body, {
-        propertyKey: "surry_fixture",
-        skip: payload.variables.input.skip,
-        limit: payload.variables.input.limit,
-        unfiltered: true,
-      }),
-    (error) =>
-      error?.details?.totalConsistency?.status === "inconsistent",
-  );
+  const unfiltered = validateReviewListResponse(body, {
+    propertyKey: "surry_fixture",
+    skip: payload.variables.input.skip,
+    limit: payload.variables.input.limit,
+    unfiltered: true,
+  });
+  assert.equal(unfiltered.totalConsistency.status, "inconsistent");
 });
 
 test("captured Olympic unfiltered totals agree without summing season buckets", {
