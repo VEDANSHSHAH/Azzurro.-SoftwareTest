@@ -6,6 +6,7 @@ release-check/
 /IMPLEMENTATION-AND-TEST-REPORT.md
 /TASK-SCOPE-COVERAGE.md
 data/
+sample-data/
 exports/
 *.sqlite
 *.sqlite-shm

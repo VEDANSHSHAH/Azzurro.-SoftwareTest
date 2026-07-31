@@ -5,20 +5,12 @@ four Azzurro trial properties. It collects public review data without an
 official API, proves that accepted inventories are complete, stores them in one
 SQLite file, and turns them into explainable weekly metrics and review topics.
 
-## Current delivery status
+## Database delivery
 
-The application and collection pipeline are working locally.
-
-| Property | Booking hotel ID | Published reviews | Evidence status |
-| --- | ---: | ---: | --- |
-| Olympic Paddington | 16211291 | 12 | Verified |
-| Potts Point | 9491412 | 2,516 | Verified |
-| Central Sydney | 9888182 | 0 | Pending verification |
-| Darling Harbour | 10753881 | 4,248 | Verified |
-
-The included database therefore contains **6,776 accepted reviews**. Olympic,
-Potts Point, and Darling Harbour each passed two complete, opposite-order
-inventories with exact identity and semantic-record parity.
+The committed `data/azzurro-reviews.sqlite` is intentionally **schema-only**:
+it contains the complete table and index structure but no properties, reviews,
+collection runs, or publications. Each machine collects and verifies its own
+public review data before using the dashboard.
 
 Central Sydney is intentionally not presented as complete. Booking advertised
 2,537 reviews but returned 2,536 unique review cards in the diagnostic run; the
@@ -27,19 +19,16 @@ strict Central-only attestation contract that can advance with new reviews, but
 it publishes only when the live source still proves exactly one missing card,
 the trusted totals and score buckets reconcile, the original count floor is not
 crossed, and both full inventories agree. The final live publication could not
-be performed from the restricted delivery environment, so the dashboard shows
-Central as **Pending verification** and the header reports **3 of 4 properties
-verified**. That is publication coverage, not an indication that a scraper
-process is currently running.
+be performed from the restricted delivery environment, so it remains pending
+until a qualifying live run succeeds.
 
 If a future Central run satisfies that complete contract and is atomically
 accepted, it counts as a verified property and the frontend labels it exactly
 **Verified with 1-review disclosure**. The badge remains amber so the
 one-review Booking source discrepancy stays visible; amber is a disclosure,
 not a downgrade of the accepted publication's verification status. This is a
-future accepted-state rule, not the state of this delivery: the current SQLite
-database still contains **0 Central rows**, and one qualifying live run remains
-required.
+future accepted-state rule. Every fresh database starts with zero rows until a
+qualifying live run publishes an accepted collection.
 
 The original Surry Hills property was replaced with Olympic Paddington as
 requested by the interviewer.
@@ -98,6 +87,18 @@ npm ci --prefix dashboard
 npx playwright install chromium
 ```
 
+### Collect initial data
+
+Run each property separately. The collector creates and populates the local
+SQLite file only after it has verified a complete collection.
+
+```bash
+npm run refresh:reviews -- --property olympic_paddington
+npm run refresh:reviews -- --property potts_point
+npm run refresh:reviews -- --property central_sydney
+npm run refresh:reviews -- --property darling_harbour
+```
+
 ### Run the local application
 
 ```bash
@@ -111,8 +112,9 @@ The command starts:
 - the read-only dashboard data service on `127.0.0.1:4318`; and
 - the frontend on `127.0.0.1:3000`.
 
-The app reads `data/azzurro-reviews.sqlite`. The release ZIP includes this
-database, so the dashboard works immediately after installation.
+The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only;
+run the collection commands above first to populate the dashboard with accepted
+data.
 
 No machine-specific browser path is embedded. After the install commands above,
 the collector uses Playwright's managed Chromium on Windows, macOS, or Linux.
@@ -409,15 +411,15 @@ The validation summary above is sufficient to reproduce the delivered checks.
 
 ## Exports and release contents
 
-`sample-data/` contains 62 public sample reviews:
+Review exports are intentionally not committed. After collecting accepted data,
+generate local JSONL and CSV exports with:
 
-- 12 Olympic Paddington
-- 25 Potts Point
-- 25 Darling Harbour
-- 0 Central Sydney because no Central generation has been accepted
+```bash
+npm run export:sample -- --out sample-data
+```
 
-Both JSONL and CSV are included with a manifest. The release ZIP also includes
-the working SQLite file so the local dashboard is immediately usable.
+The release packager includes the schema-only SQLite file, not collected review
+records.
 
 The release packager excludes HARs, logs, temporary build output, environment
 files, cookies, browser profiles, and dependency folders. No passwords, API

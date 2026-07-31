@@ -37,7 +37,6 @@ $requiredRootFiles = @(
 $requiredRootDirectories = @(
     'config',
     'dashboard',
-    'sample-data',
     'scripts',
     'src',
     'test'
