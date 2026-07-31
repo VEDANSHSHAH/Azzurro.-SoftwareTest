@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Use the installed package's CSS entry directly so a clean local install does
+   not depend on an environment-specific package-import resolver. */
+@import "../node_modules/tailwindcss/index.css";
 
 :root {
   --navy: #0f2a4d;
