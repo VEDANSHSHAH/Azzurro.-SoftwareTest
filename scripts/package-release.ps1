@@ -31,10 +31,6 @@ $requiredRootFiles = @(
     'package.json',
     'package-lock.json',
     'README.md',
-    'IMPLEMENTATION-AND-TEST-REPORT.md',
-    'INTERVIEW-STATUS.md',
-    'PROJECT-TODO.md',
-    'TASK-SCOPE-COVERAGE.md',
     'data/azzurro-reviews.sqlite'
 )
 

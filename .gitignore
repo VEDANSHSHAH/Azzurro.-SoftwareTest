@@ -1,6 +1,10 @@
 node_modules/
 coverage/
 release-check/
+/PROJECT-TODO.md
+/INTERVIEW-STATUS.md
+/IMPLEMENTATION-AND-TEST-REPORT.md
+/TASK-SCOPE-COVERAGE.md
 data/
 exports/
 *.sqlite

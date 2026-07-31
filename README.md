@@ -402,7 +402,7 @@ npm test --prefix dashboard
   used for those tests. This restricted runner denied a clean npm-cache read,
   so a different laptop must still run the documented `npm ci` commands.
 
-See `IMPLEMENTATION-AND-TEST-REPORT.md` for the detailed evidence log.
+The validation summary above is sufficient to reproduce the delivered checks.
 
 ## Exports and release contents
 
