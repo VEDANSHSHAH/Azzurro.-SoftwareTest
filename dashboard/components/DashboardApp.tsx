@@ -5,18 +5,18 @@ import { AppHeader } from "./AppHeader";
 import { GlobalFilters } from "./GlobalFilters";
 import { Sidebar } from "./Sidebar";
 import { ErrorState, LoadingState, NoPublishedDataState } from "./ui/States";
+import {
+  CollectButton,
+  CollectProgress,
+  useCollectJob,
+} from "./CollectControl";
 import { InsightsView } from "./views/InsightsView";
 import { OverviewView } from "./views/OverviewView";
 import { PropertiesView } from "./views/PropertiesView";
 import { QualityView } from "./views/QualityView";
 import { ReviewsView } from "./views/ReviewsView";
 import { TrendsView } from "./views/TrendsView";
-import {
-  fetchCollectionStatus,
-  fetchDashboard,
-  startCollection,
-  type CollectionStatus,
-} from "../lib/dashboard-client";
+import { fetchDashboard } from "../lib/dashboard-client";
 import {
   DEFAULT_DASHBOARD_FILTERS,
   DEFAULT_REVIEW_QUERY,
@@ -157,11 +157,11 @@ export function DashboardApp() {
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [collection, setCollection] = useState<CollectionStatus | null>(null);
-  const [collectionStarting, setCollectionStarting] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const firstRequest = useRef(true);
-  const wasCollectionRunning = useRef(false);
+  const collect = useCollectJob(
+    useCallback(() => setRefreshToken((value) => value + 1), []),
+  );
 
   /* URL state is intentionally applied after hydration so server and first
      client markup remain identical in the local vinext shell. */
@@ -212,30 +212,6 @@ export function DashboardApp() {
       controller.abort();
     };
   }, [hydrated, requestData, reviewQuery.query]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const checkCollection = async () => {
-      try {
-        const status = await fetchCollectionStatus();
-        if (cancelled) return;
-        setCollection(status);
-        if (wasCollectionRunning.current && !status.running) {
-          setRefreshToken((value) => value + 1);
-        }
-        wasCollectionRunning.current = status.running;
-      } catch {
-        // The dashboard remains usable when the optional collection status
-        // endpoint is temporarily unavailable.
-      }
-    };
-    void checkCollection();
-    const interval = window.setInterval(checkCollection, 2_500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -331,30 +307,6 @@ export function DashboardApp() {
     navigate("reviews");
   };
 
-  const beginCollection = async () => {
-    setCollectionStarting(true);
-    try {
-      const status = await startCollection(filters.propertyKeys);
-      setCollection(status);
-      wasCollectionRunning.current = status.running;
-    } catch (collectionError) {
-      setCollection({
-        status: "failed",
-        running: false,
-        propertyKeys: filters.propertyKeys,
-        startedAt: null,
-        finishedAt: new Date().toISOString(),
-        exitCode: null,
-        message:
-          collectionError instanceof Error
-            ? collectionError.message
-            : "The collection could not be started.",
-      });
-    } finally {
-      setCollectionStarting(false);
-    }
-  };
-
   const content = () => {
     if (!data && !error) return <LoadingState />;
     if (error && !data) {
@@ -366,7 +318,19 @@ export function DashboardApp() {
       );
     }
     if (!data) return null;
-    if (data.properties.length === 0) return <NoPublishedDataState />;
+    if (data.properties.length === 0) {
+      return (
+        <NoPublishedDataState
+          action={
+            <CollectButton
+              controller={collect}
+              label="Collect reviews now"
+              variant="primary"
+            />
+          }
+        />
+      );
+    }
     if (view === "overview") {
       return <OverviewView data={data} onNavigate={navigate} />;
     }
@@ -405,19 +369,21 @@ export function DashboardApp() {
       />
       <div className="app-main">
         <AppHeader
-          collection={collection}
-          collectionStarting={collectionStarting}
-          collectionTargetLabel={
-            filters.propertyKeys.length === 0
-              ? ""
-              : ` (${filters.propertyKeys.length} selected)`
-          }
+          collect={collect}
           data={data}
           onMenuOpen={() => setSidebarOpen(true)}
           onRefresh={() => setRefreshToken((value) => value + 1)}
-          onStartCollection={() => void beginCollection()}
           refreshing={refreshing}
           view={view}
+        />
+        <CollectProgress
+          controller={collect}
+          names={Object.fromEntries(
+            (data?.properties ?? []).map((property) => [
+              property.propertyKey,
+              property.propertyName,
+            ]),
+          )}
         />
         {view !== "reviews" ? (
           <GlobalFilters

@@ -1,11 +1,14 @@
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createDashboardDataService,
   DashboardDataError,
 } from "../src/dashboard-data.mjs";
+import {
+  CollectJobError,
+  createCollectJobRunner,
+} from "../src/collect-job.mjs";
 import { loadProperties } from "../src/property-config.mjs";
 
 const projectRoot = resolve(
@@ -40,20 +43,12 @@ const service = createDashboardDataService({
   dbPath,
   propertiesPath,
 });
-const configuredProperties = await loadProperties(propertiesPath);
-const configuredPropertyKeys = new Set(
-  configuredProperties.map((property) => property.key),
-);
 
-let activeCollection = null;
-let collectionStatus = {
-  status: "idle",
-  propertyKeys: [],
-  startedAt: null,
-  finishedAt: null,
-  exitCode: null,
-  message: "No collection has been started in this local session.",
-};
+const collectRunner = createCollectJobRunner({
+  projectRoot,
+  databasePath: dbPath,
+  propertiesPath,
+});
 
 function allowedOrigin(value) {
   if (!value) return null;
@@ -71,10 +66,38 @@ function allowedOrigin(value) {
   return null;
 }
 
+/*
+ * The collect endpoints start a real browser process, so they are guarded
+ * beyond ordinary CORS. The listener is already bound to loopback; these checks
+ * additionally stop a page in the user's browser from driving the collector via
+ * a cross-site request or a rebound DNS name.
+ */
+const COLLECT_INTENT_HEADER = "x-azzurro-collect";
+
+function isLoopbackHost(value) {
+  if (!value) return false;
+  const withoutPort = value.replace(/:\d+$/, "").toLowerCase();
+  return (
+    withoutPort === "127.0.0.1" ||
+    withoutPort === "localhost" ||
+    withoutPort === "[::1]" ||
+    withoutPort === "::1"
+  );
+}
+
+function collectRequestIsTrusted(request) {
+  if (!isLoopbackHost(request.headers.host)) return false;
+  /* A cross-origin page cannot set this header without a preflight, and the
+     preflight only succeeds for loopback origins. */
+  if (request.headers[COLLECT_INTENT_HEADER] !== "1") return false;
+  const origin = request.headers.origin;
+  return !origin || allowedOrigin(origin) !== null;
+}
+
 function responseHeaders(request) {
   const origin = allowedOrigin(request.headers.origin);
   return {
-    "Access-Control-Allow-Headers": "Accept, Content-Type",
+    "Access-Control-Allow-Headers": `Accept, Content-Type, ${COLLECT_INTENT_HEADER}`,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     ...(origin
       ? {
@@ -91,125 +114,93 @@ function responseHeaders(request) {
   };
 }
 
-function collectionPayload() {
-  return {
-    ...collectionStatus,
-    running: activeCollection !== null,
-  };
-}
-
-function readJsonBody(request) {
-  return new Promise((resolveBody, reject) => {
-    let body = "";
-    request.setEncoding("utf8");
-    request.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > 2_048) {
-        reject(new Error("Request body is too large."));
-        request.destroy();
-      }
-    });
-    request.on("end", () => {
-      if (!body) {
-        resolveBody({});
-        return;
-      }
-      try {
-        resolveBody(JSON.parse(body));
-      } catch {
-        reject(new Error("Request body must be valid JSON."));
-      }
-    });
-    request.on("error", reject);
-  });
-}
-
-function selectedPropertyKeys(value) {
-  if (!value || typeof value !== "object") {
-    throw new Error("Collection options must be an object.");
-  }
-  const { propertyKeys } = value;
-  if (propertyKeys === undefined) {
-    return configuredProperties.map((property) => property.key);
-  }
-  if (!Array.isArray(propertyKeys) || propertyKeys.length === 0) {
-    return configuredProperties.map((property) => property.key);
-  }
-  if (
-    propertyKeys.some(
-      (propertyKey) =>
-        typeof propertyKey !== "string" || !configuredPropertyKeys.has(propertyKey),
-    )
-  ) {
-    throw new Error("One or more selected properties are not configured.");
-  }
-  return [...new Set(propertyKeys)];
-}
-
-function startCollection(propertyKeys) {
-  if (activeCollection) {
-    const error = new Error("A collection is already running.");
-    error.code = "COLLECTION_RUNNING";
-    throw error;
-  }
-  const child = spawn(
-    process.execPath,
-    [
-      "scripts/scrape.mjs",
-      "--mode",
-      "full",
-      "--property",
-      propertyKeys.join(","),
-      "--headed",
-      "--interactive-challenge",
-    ],
-    {
-      cwd: projectRoot,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: false,
-    },
-  );
-  activeCollection = child;
-  collectionStatus = {
-    status: "running",
-    propertyKeys,
-    startedAt: new Date().toISOString(),
-    finishedAt: null,
-    exitCode: null,
-    message:
-      "Collection is running in a visible browser. Complete any Booking verification there; only complete verified results are published.",
-  };
-  child.on("error", (error) => {
-    activeCollection = null;
-    collectionStatus = {
-      ...collectionStatus,
-      status: "failed",
-      finishedAt: new Date().toISOString(),
-      message: `The collector could not start: ${error.message}`,
-    };
-  });
-  child.on("close", (exitCode) => {
-    activeCollection = null;
-    collectionStatus = {
-      ...collectionStatus,
-      status: exitCode === 0 ? "completed" : "failed",
-      finishedAt: new Date().toISOString(),
-      exitCode,
-      message:
-        exitCode === 0
-          ? "Collection finished. Reloading the dashboard will show any newly verified publications."
-          : "Collection stopped without publishing a complete verified result for at least one property. Check the visible browser and run it again when ready.",
-    };
-  });
-  return collectionPayload();
-}
-
 function sendJson(request, response, status, value) {
   response.writeHead(status, responseHeaders(request));
   response.end(JSON.stringify(value));
 }
 
-const server = createServer(async (request, response) => {
+function readJsonBody(request, limitBytes = 8192) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    let raw = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > limitBytes) {
+        rejectPromise(new CollectJobError("BODY_TOO_LARGE", "Request too large."));
+        request.destroy();
+      }
+    });
+    request.on("end", () => {
+      if (!raw.trim()) {
+        resolvePromise({});
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(raw));
+      } catch {
+        rejectPromise(new CollectJobError("INVALID_JSON", "Invalid JSON body."));
+      }
+    });
+    request.on("error", () =>
+      rejectPromise(new CollectJobError("BODY_READ_FAILED", "Body read failed.")),
+    );
+  });
+}
+
+async function handleCollectStart(request, response) {
+  if (!collectRequestIsTrusted(request)) {
+    sendJson(request, response, 403, {
+      error: "Collection can only be started from the local dashboard.",
+      code: "COLLECT_FORBIDDEN",
+    });
+    return;
+  }
+  let body;
+  try {
+    body = await readJsonBody(request);
+  } catch (error) {
+    sendJson(request, response, 400, {
+      error: error.message,
+      code: error.code ?? "INVALID_BODY",
+    });
+    return;
+  }
+
+  const configured = await loadProperties(propertiesPath);
+  const configuredKeys = configured.map((entry) => entry.key);
+  const requested =
+    Array.isArray(body.properties) && body.properties.length > 0
+      ? body.properties
+      : configuredKeys;
+  const unknown = requested.filter((key) => !configuredKeys.includes(key));
+  if (unknown.length > 0) {
+    sendJson(request, response, 400, {
+      error: `Unknown property: ${unknown.join(", ")}`,
+      code: "COLLECT_UNKNOWN_PROPERTY",
+    });
+    return;
+  }
+
+  try {
+    const started = collectRunner.start({
+      propertyKeys: requested,
+      headed: body.headed !== false,
+      interactiveChallenge: body.interactiveChallenge !== false,
+    });
+    sendJson(request, response, 202, started);
+  } catch (error) {
+    if (error instanceof CollectJobError) {
+      sendJson(request, response, 409, {
+        error: error.message,
+        code: error.code,
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+const server = createServer((request, response) => {
   if (request.method === "OPTIONS") {
     response.writeHead(204, responseHeaders(request));
     response.end();
@@ -222,26 +213,44 @@ const server = createServer(async (request, response) => {
     sendJson(request, response, 400, { error: "Invalid request URL." });
     return;
   }
-  if (request.method === "GET" && url.pathname === "/api/collection") {
-    sendJson(request, response, 200, collectionPayload());
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/collection") {
-    try {
-      const body = await readJsonBody(request);
-      const propertyKeys = selectedPropertyKeys(body);
-      sendJson(request, response, 202, startCollection(propertyKeys));
-    } catch (error) {
-      const status = error?.code === "COLLECTION_RUNNING" ? 409 : 400;
-      sendJson(request, response, status, {
-        error:
-          error instanceof Error
-            ? error.message
-            : "The collection could not be started.",
+
+  if (url.pathname === "/api/collect") {
+    if (request.method === "POST") {
+      handleCollectStart(request, response).catch(() => {
+        sendJson(request, response, 500, {
+          error: "The collection could not be started.",
+        });
       });
+      return;
     }
+    if (request.method === "GET") {
+      sendJson(request, response, 200, collectRunner.status());
+      return;
+    }
+    if (request.method === "DELETE") {
+      if (!collectRequestIsTrusted(request)) {
+        sendJson(request, response, 403, {
+          error: "Collection can only be controlled from the local dashboard.",
+          code: "COLLECT_FORBIDDEN",
+        });
+        return;
+      }
+      try {
+        sendJson(request, response, 200, collectRunner.cancel());
+      } catch (error) {
+        sendJson(request, response, 409, {
+          error: error.message,
+          code: error.code ?? "COLLECT_NOT_RUNNING",
+        });
+      }
+      return;
+    }
+    sendJson(request, response, 405, {
+      error: "Unsupported method for /api/collect.",
+    });
     return;
   }
+
   if (request.method !== "GET") {
     sendJson(request, response, 405, {
       error: "Only GET requests are supported.",
@@ -288,7 +297,7 @@ server.listen(port, host, () => {
 });
 
 function stop(signal) {
-  activeCollection?.kill("SIGTERM");
+  collectRunner.dispose();
   server.close((error) => {
     if (error) {
       process.stderr.write(`[dashboard] shutdown failed after ${signal}\n`);

@@ -59,15 +59,25 @@ Topic and property drill-down links seed the review explorer with the visible
 reporting context. Reset controls return to a predictable default.
 
 The header's **Reload dashboard** control rereads the latest accepted SQLite
-publication. It does not contact Booking or start the collector. From the
-repository root, `npm run refresh:reviews -- --property <key>` performs the
-accuracy-gated live refetch.
+publication only; it does not contact Booking or start the collector.
+
+The separate **Collect reviews** control (shown as **Collect reviews now** on
+the empty state) does start the collector: it opens a real browser window and
+runs the same accuracy-gated crawl for all four properties, with live
+per-property progress shown under the header. No terminal is required. The
+same operation is also available from the repository root as
+`npm run refresh:reviews -- --property <key>`, useful for a single property or
+scripted runs.
 
 The status badge reports accepted publication coverage, for example **3 of 4
 properties verified**. A property labelled **Pending verification** has no
 accepted generation yet; neither label means a scraper process is currently
-running. A property published with a Booking source gap counts as verified and
-keeps an amber disclosure showing the advertised and retrievable counts.
+running.
+
+A property published while Booking's advertised total exceeded its retrievable
+review list counts as verified and keeps an amber **source gap** disclosure
+showing both counts. The gap is Booking's own aggregation shortfall, so the
+badge marks the source, not a failed collection.
 
 ## Motion and accessibility
 

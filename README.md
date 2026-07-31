@@ -12,24 +12,37 @@ it contains the complete table and index structure but no properties, reviews,
 collection runs, or publications. Each machine collects and verifies its own
 public review data before using the dashboard.
 
-## Booking advertised/retrievable count gap
-
-Booking shows an aggregate review total and separately paginates individual
-reviews. Occasionally the review list ends a small number short of the
-advertised total. The collector records this as a bounded source-gap disclosure
-only when all aggregate totals, score buckets, and two independent inventories
-reconcile.
-
-- An exact count is the normal case.
-- A gap is tolerated only up to `min(5, 1% of the advertised total)`.
-- The score-bucket shortfalls must add up to exactly the disclosed gap.
-- A wider or inconsistent gap fails closed and is not published.
-
-Every fresh database starts with zero rows until a qualifying live run publishes
-an accepted collection.
+All four properties collect and publish normally, Central Sydney included.
 
 The original Surry Hills property was replaced with Olympic Paddington as
 requested by the interviewer.
+
+## Booking's advertised/retrievable count gap
+
+Booking publishes a property's review total through four aggregate filters, and
+separately paginates the reviews themselves. Those two numbers occasionally
+disagree by a small amount: the page advertises N reviews while the review list
+exhausts at N-1. It is Booking's own aggregation lag, not something a collector
+can resolve.
+
+The collector treats that as a **bounded, disclosed tolerance** rather than an
+error or a requirement:
+
+- A gap of zero is the ordinary healthy case and needs no attestation.
+- A small gap is accepted, recorded as a `source_discrepancy_attestation`, and
+  surfaced in the dashboard as an amber disclosure. The property still counts as
+  verified; the badge marks the source's shortfall, not a failed collection.
+- The tolerated gap is `min(5, 1% of the advertised total)`, so a property too
+  small for one percent to reach a single review tolerates no gap at all.
+- The shortfall may fall in any score bucket, and the per-bucket shortfalls must
+  add up to exactly the whole gap.
+- Anything wider still fails closed and publishes nothing.
+
+Central Sydney is the property where this was first observed: an earlier
+diagnostic saw 2,537 advertised against 2,536 retrievable. Booking has since
+reconciled it, and Central now collects a complete 2,537 with no gap. Because
+the tolerance is derived from live evidence rather than pinned to one hotel and
+one hard-coded shape, both states publish correctly.
 
 ## What the dashboard includes
 
@@ -56,12 +69,18 @@ and separates work into six uncluttered workspaces:
   buttons above the feed.
 - **Data quality:** per-property advertised/retrievable counts, inventory and
   semantic parity, parser version, source-gap disclosure, database integrity,
-  and publication status. Pending properties are labelled as awaiting
+  and publication status. Properties not yet collected are labelled as awaiting
   verification rather than implying that collection is actively running. A
-  published source gap is counted as verified and retains an amber disclosure.
+  property published with a Booking source gap is counted as verified and keeps
+  an amber disclosure showing the advertised and retrievable counts.
 
 Charts and cards use restrained entrance and data animations. All motion is
 disabled when the operating system requests reduced motion.
+
+A **Collect reviews** action is always available from the header (and shown
+prominently when no data has been published yet). It starts the same
+accuracy-gated collector documented below, with live per-property progress,
+without requiring a terminal.
 
 ## Quick start
 
@@ -84,18 +103,6 @@ npm ci --prefix dashboard
 npx playwright install chromium
 ```
 
-### Collect initial data
-
-Run each property separately. The collector creates and populates the local
-SQLite file only after it has verified a complete collection.
-
-```bash
-npm run refresh:reviews -- --property olympic_paddington
-npm run refresh:reviews -- --property potts_point
-npm run refresh:reviews -- --property central_sydney
-npm run refresh:reviews -- --property darling_harbour
-```
-
 ### Run the local application
 
 ```bash
@@ -109,19 +116,8 @@ The command starts:
 - the read-only dashboard data service on `127.0.0.1:4318`; and
 - the frontend on `127.0.0.1:3000`.
 
-The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only;
-run the collection commands above first to populate the dashboard with accepted
-data.
-
-The dashboard header also has a **Start collection** button. Select a property
-in the Property filter first if you do not want to collect every configured
-property. The button opens the same visible browser as the command-line
-collector and reports its real local status. It cannot start a second run while
-one is active, and incomplete results are not published.
-
-No machine-specific browser path is embedded. After the install commands above,
-the collector uses Playwright's managed Chromium on Windows, macOS, or Linux.
-An installed Chrome path is an optional override, not a requirement.
+The app reads `data/azzurro-reviews.sqlite`. The committed file has tables only,
+so collect reviews from the dashboard itself before there is anything to show.
 
 To start the two processes separately:
 
@@ -130,7 +126,32 @@ npm run dashboard:api
 npm run dashboard:dev
 ```
 
-## Running the collector
+### Collect initial data
+
+No terminal command is required. The dashboard shows a **Collect reviews now**
+button whenever no data has been published yet, and a **Collect reviews**
+action in the header once data exists. Clicking it opens a real browser window
+and runs the same accuracy-gated collector as the CLI for all four
+properties, publishing to the local SQLite file only after every check
+succeeds. If Booking shows a human-verification page, complete it in the
+opened browser window; collection continues automatically afterward.
+Per-property progress is shown live under the header, and the dashboard
+reloads on its own once a property publishes.
+
+No machine-specific browser path is embedded. After the install commands
+above, the collector uses Playwright's managed Chromium on Windows, macOS, or
+Linux. An installed Chrome path is an optional override, not a requirement.
+
+The button calls the same `scripts/scrape.mjs` collector documented below, so
+the terminal commands remain available for scripting, CI, or collecting a
+single named property without opening the dashboard.
+
+## Running the collector from a terminal
+
+The dashboard's **Collect reviews** button (see Quick start above) runs this
+same collector for all four properties without a terminal. The commands below
+are the equivalent terminal path, useful for scripting, CI, or a single named
+property.
 
 The four property URLs and Booking hotel IDs are fixed in
 `config/properties.json`, so normal runs do not rediscover them.
@@ -154,8 +175,9 @@ npm run refresh:reviews -- --property olympic_paddington
 ```
 
 This is the command that contacts Booking and reconciles new, changed, and
-missing reviews. The dashboard's **Reload dashboard** button only reloads the
-latest accepted SQLite publication; it never starts a scrape.
+missing reviews; the dashboard's **Collect reviews** button runs it the same
+way. The dashboard's separate **Reload dashboard** button only reloads the
+latest accepted SQLite publication and never starts a scrape on its own.
 
 Run selected properties sequentially:
 
@@ -240,8 +262,8 @@ Accuracy is enforced before publication, not estimated afterwards:
 
 - Four independent advertised-count sources must agree.
 - Five disjoint Booking score buckets must reconcile to the advertised total.
-- The retrievable inventory must match the advertised total or satisfy the
-  bounded, disclosed source-gap rule above.
+- The advertised total and the retrievable inventory must match, or differ by no
+  more than the bounded gap described above, which is then disclosed.
 - A non-empty property must expose a non-empty category-score profile.
 - Every review must satisfy the strict parser contract.
 - Source review IDs must be unique within a page and across the inventory.
@@ -394,6 +416,9 @@ npm test --prefix dashboard
 - Root suite: **228 tests**, **222 passed**, **0 failed**, **6 skipped**.
   The skipped cases require the original private HAR captures; equivalent
   sanitized contract fixtures run in the normal suite.
+- Live collection: all four properties were collected end to end against
+  Booking, including Central Sydney at 2,537 reviews across two independent
+  opposite-order passes with exact identity and record parity.
 - Dashboard: ESLint passed, TypeScript passed, five-environment production
   build passed, and two rendered-production tests passed.
 - Browser QA: all six workspaces, exact source category scores, the
@@ -434,10 +459,11 @@ keys, session cookies, or personal account credentials are required or stored.
 
 - Booking can change its public page or structured response, rate-limit
   requests, or present a challenge. The collector fails closed rather than
-  silently publishing partial data. Use `--headed --interactive-challenge` if
-  a normal verification screen is shown.
-- A disclosed source gap means Booking advertised reviews that its own list did
-  not return; those rows cannot be collected without being served by Booking.
+  silently publishing partial data.
+- Booking frequently serves a challenge page to a headless browser. Collect with
+  `--headed --interactive-challenge` if a run fails with `CHALLENGE`.
+- A tolerated source gap means those reviews are advertised by Booking but never
+  served by its review list, so they cannot be collected by any method.
 - Full refreshes prioritize proof over speed and can take time for properties
   with thousands of reviews.
 - Collection is manually started; no scheduler, watchdog, automatic restart, or

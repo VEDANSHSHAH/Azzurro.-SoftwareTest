@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   AlertTriangle,
   Database,
@@ -63,18 +64,25 @@ export function EmptyState({
   );
 }
 
-export function NoPublishedDataState() {
+export function NoPublishedDataState({
+  action,
+}: {
+  action?: ReactNode;
+}) {
   return (
     <div className="page-state">
       <span className="page-state__icon">
         <Database aria-hidden="true" size={24} />
       </span>
       <div>
-        <strong>No accepted property publications yet</strong>
+        <strong>No reviews collected yet</strong>
         <p>
-          Run the accuracy-first collector, then refresh this view. Unverified
-          scrape attempts are never shown as dashboard data.
+          Collect guest reviews for all four properties directly from
+          Booking.com. A browser window opens so you can complete any
+          verification step. Unverified scrape attempts are never shown as
+          dashboard data.
         </p>
+        {action ? <div className="page-state__action">{action}</div> : null}
       </div>
     </div>
   );

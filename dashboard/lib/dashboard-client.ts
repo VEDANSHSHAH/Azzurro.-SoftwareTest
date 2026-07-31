@@ -7,16 +7,6 @@ import type {
 const DEFAULT_API_ORIGIN =
   process.env.NEXT_PUBLIC_AZZURO_API_ORIGIN ?? "http://127.0.0.1:4318";
 
-export interface CollectionStatus {
-  status: "idle" | "running" | "completed" | "failed";
-  running: boolean;
-  propertyKeys: string[];
-  startedAt: string | null;
-  finishedAt: string | null;
-  exitCode: number | null;
-  message: string;
-}
-
 function appendList(
   search: URLSearchParams,
   name: string,
@@ -70,32 +60,4 @@ export async function fetchDashboard(
     throw new Error(message);
   }
   return (await response.json()) as DashboardPayload;
-}
-
-async function collectionRequest(
-  method: "GET" | "POST",
-  propertyKeys?: string[],
-) {
-  const response = await fetch(`${DEFAULT_API_ORIGIN}/api/collection`, {
-    method,
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: method === "POST" ? JSON.stringify({ propertyKeys }) : undefined,
-  });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(
-      payload && typeof payload.error === "string"
-        ? payload.error
-        : `Collection request failed (${response.status})`,
-    );
-  }
-  return (await response.json()) as CollectionStatus;
-}
-
-export function fetchCollectionStatus() {
-  return collectionRequest("GET");
-}
-
-export function startCollection(propertyKeys: string[]) {
-  return collectionRequest("POST", propertyKeys);
 }

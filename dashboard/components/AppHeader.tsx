@@ -4,7 +4,6 @@ import {
   CalendarDays,
   CircleDotDashed,
   Menu,
-  Play,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -15,7 +14,7 @@ import {
   isAcceptedPublication,
   SOURCE_GAP_VERIFIED_LABEL,
 } from "../lib/publication-status";
-import type { CollectionStatus } from "../lib/dashboard-client";
+import { CollectButton, type CollectController } from "./CollectControl";
 
 const VIEW_COPY: Record<
   DashboardView,
@@ -62,25 +61,19 @@ const VIEW_COPY: Record<
 interface AppHeaderProps {
   view: DashboardView;
   data: DashboardPayload | null;
-  collection: CollectionStatus | null;
-  collectionStarting: boolean;
-  collectionTargetLabel: string;
   refreshing: boolean;
+  collect: CollectController;
   onMenuOpen: () => void;
   onRefresh: () => void;
-  onStartCollection: () => void;
 }
 
 export function AppHeader({
   view,
   data,
-  collection,
-  collectionStarting,
-  collectionTargetLabel,
   refreshing,
+  collect,
   onMenuOpen,
   onRefresh,
-  onStartCollection,
 }: AppHeaderProps) {
   const copy = VIEW_COPY[view];
   const qualityStatus = data?.quality.overallStatus ?? "collecting";
@@ -134,41 +127,24 @@ export function AppHeader({
             {formatLocalDate(data?.overview.dataThrough ?? null, true)}
           </span>
         </div>
-        <button
-          className="button button--primary collection-button"
-          disabled={collectionStarting || collection?.running}
-          onClick={onStartCollection}
-          title="Starts a full verified collection in a visible browser. Complete any Booking verification in that browser."
-          type="button"
-        >
-          <Play aria-hidden="true" fill="currentColor" size={14} />
-          {collectionStarting || collection?.running
-            ? "Collection running"
-            : `Start collection${collectionTargetLabel}`}
-        </button>
-        <button
-          className="button button--secondary refresh-button"
-          disabled={refreshing}
-          onClick={onRefresh}
-          title="Reload the latest accepted SQLite data; this does not run the Booking collector"
-          type="button"
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={refreshing ? "is-spinning" : ""}
-            size={16}
-          />
-          Reload dashboard
-        </button>
+        <div className="app-header__actions">
+          <button
+            className="button button--secondary refresh-button"
+            disabled={refreshing}
+            onClick={onRefresh}
+            title="Reload the latest accepted SQLite data; this does not run the Booking collector"
+            type="button"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={refreshing ? "is-spinning" : ""}
+              size={16}
+            />
+            Reload dashboard
+          </button>
+          <CollectButton controller={collect} />
+        </div>
       </div>
-      {collection && collection.status !== "idle" ? (
-        <p
-          className={`collection-status collection-status--${collection.status}`}
-          role="status"
-        >
-          {collection.message}
-        </p>
-      ) : null}
       <div className="app-header__copy">
         <p className="eyebrow">{copy.eyebrow}</p>
         <h1>{copy.title}</h1>

@@ -549,29 +549,12 @@ select:focus-visible {
   color: #b81347;
 }
 
-.refresh-button {
+.app-header__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-left: auto;
-}
-
-.collection-button {
-  margin-left: auto;
-}
-
-.collection-status {
-  color: var(--ink-muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-  margin: 0.7rem 0 0 auto;
-  max-width: 44rem;
-  text-align: right;
-}
-
-.collection-status--running {
-  color: var(--brand-navy);
-}
-
-.collection-status--failed {
-  color: var(--danger);
 }
 
 .is-spinning {
@@ -581,6 +564,172 @@ select:focus-visible {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Collection control ----------------------------------------------------- */
+
+.button--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+}
+
+.button--ghost:hover:not(:disabled) {
+  background: rgb(0 0 0 / 6%);
+}
+
+.page-state__action {
+  margin-top: 14px;
+}
+
+/* While a collection runs the button reads as busy, not merely disabled. */
+.collect-button:disabled {
+  cursor: progress;
+  opacity: 1;
+}
+
+.collect-button.button--secondary:disabled,
+.collect-button.button--primary:disabled {
+  position: relative;
+  overflow: hidden;
+}
+
+.collect-button:disabled::after {
+  animation: collect-sweep 1.4s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 45%),
+    transparent
+  );
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+@keyframes collect-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.collect-panel {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--pink);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  margin: 16px 24px 0;
+  padding: 16px 18px;
+}
+
+.collect-panel--succeeded {
+  border-left-color: #1f9d63;
+}
+
+.collect-panel--failed {
+  border-left-color: #d1434f;
+}
+
+.collect-panel--cancelled {
+  border-left-color: var(--line-strong);
+}
+
+.collect-panel__head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.collect-panel__title {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 650;
+  gap: 8px;
+}
+
+.collect-panel__hint {
+  color: var(--muted, #5b6472);
+  font-size: 13px;
+  margin: 0;
+}
+
+.collect-panel__list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.collect-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(120px, 1.1fr) minmax(80px, 2fr) minmax(140px, 1.2fr);
+}
+
+.collect-row__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.collect-row__meter {
+  background: rgb(0 0 0 / 8%);
+  border-radius: 999px;
+  display: block;
+  height: 6px;
+  overflow: hidden;
+}
+
+.collect-row__fill {
+  background: var(--pink);
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+  transition: width 400ms ease;
+}
+
+.collect-row--published .collect-row__fill {
+  background: #1f9d63;
+}
+
+.collect-row--failed .collect-row__fill {
+  background: #d1434f;
+}
+
+/* An active property pulses so progress is visible even between page counts. */
+.collect-row--collecting .collect-row__fill {
+  animation: collect-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes collect-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.collect-row__status {
+  color: var(--muted, #5b6472);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .collect-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .collect-row__status {
+    text-align: left;
   }
 }
 
