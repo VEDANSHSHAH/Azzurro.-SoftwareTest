@@ -79,6 +79,11 @@ review list counts as verified and keeps an amber **source gap** disclosure
 showing both counts. The gap is Booking's own aggregation shortfall, so the
 badge marks the source, not a failed collection.
 
+Central Sydney also has a bounded visible-modal exception: a positive difference
+of at most five is accepted only for its exact Booking hotel identity, stored as
+separate evidence, and displayed with the actual visible and structured counts.
+The dashboard never creates rows for the difference.
+
 ## Motion and accessibility
 
 - Recharts series animate with short, consistent easing.

@@ -261,10 +261,12 @@ function collectReadyRun(storage, {
   mode = "full",
   finalCount = reviews.length,
   basePublicationRunId,
+  propertyKey = "olympic_paddington",
+  displayedReviewCount = finalCount,
 }) {
   storage.createRun({
     runId,
-    propertyKey: "olympic_paddington",
+    propertyKey,
     mode,
     querySha256: QUERY_HASH,
     parserVersion: "test-parser",
@@ -376,12 +378,60 @@ function collectReadyRun(storage, {
     finalCount,
     snapshot: {
       displayedScore: 8.8,
-      displayedReviewCount: finalCount,
+      displayedReviewCount,
       ratingScores: [{ name: "Staff", score: 9.4 }],
     },
   });
   return storage.getRun(runId);
 }
+
+test("only Central can finalize with a positive visible count gap up to five", (t) => {
+  const storage = storageFixture(t);
+  storage.registerProperty({
+    propertyKey: "central_sydney",
+    bookingHotelId: 9888182,
+    canonicalUrl:
+      "https://www.booking.com/hotel/au/venus-surry-hills.html",
+    businessName: "Central Sydney",
+    bookingName: "Central Sydney Budget Stay",
+    countryCode: "au",
+    timeZone: "Australia/Sydney",
+  });
+
+  collectReadyRun(storage, {
+    runId: "central-visible-gap",
+    propertyKey: "central_sydney",
+    reviews: [review("central-a"), review("central-b")],
+    displayedReviewCount: 4,
+  });
+  const snapshot = storage.getSnapshot("central-visible-gap");
+  assert.equal(snapshot.displayed_review_count, 4);
+  assert.equal(snapshot.structured_review_count, 2);
+
+  assert.throws(
+    () =>
+      collectReadyRun(storage, {
+        runId: "central-gap-too-large",
+        propertyKey: "central_sydney",
+        reviews: [review("central-c"), review("central-d")],
+        displayedReviewCount: 8,
+      }),
+    (error) =>
+      error instanceof StorageError &&
+      error.code === "DISPLAYED_COUNT_MISMATCH",
+  );
+  assert.throws(
+    () =>
+      collectReadyRun(storage, {
+        runId: "non-central-visible-gap",
+        reviews: [review("olympic-a"), review("olympic-b")],
+        displayedReviewCount: 4,
+      }),
+    (error) =>
+      error instanceof StorageError &&
+      error.code === "DISPLAYED_COUNT_MISMATCH",
+  );
+});
 
 test("a full run promotes atomically and promotion is idempotent", (t) => {
   const storage = storageFixture(t);
@@ -1275,6 +1325,72 @@ test("hostname-only photo rotation is idempotent for a page replay while raw sou
   assert.equal(
     staged.record_hash,
     reviewWithPhoto("photo-a", rotatedUrl).recordHash,
+  );
+});
+
+test("raw Booking photo URLs are accepted when their semantic source-card form matches", (t) => {
+  const storage = storageFixture(t);
+  storage.createRun({
+    runId: "raw-photo-attribution",
+    propertyKey: "olympic_paddington",
+    mode: "incremental",
+    querySha256: QUERY_HASH,
+    parserVersion: "2.3.0",
+  });
+  storage.createPhase({
+    runId: "raw-photo-attribution",
+    phaseKey: "primary",
+    sorter: "NEWEST_FIRST",
+  });
+  const liveLikeReview = reviewWithPhoto(
+    "raw-photo",
+    "https://cf.bstatic.com/xdata/images/hotel/square80/42.jpg?k=asset",
+  );
+  liveLikeReview.photos = liveLikeReview.sourceCard.photos;
+  delete liveLikeReview.contentHash;
+
+  assert.doesNotThrow(() =>
+    storage.stagePage({
+      runId: "raw-photo-attribution",
+      phaseKey: "primary",
+      sourceOffset: 0,
+      requestedLimit: 10,
+      reportedReviewCount: 1,
+      reviews: [liveLikeReview],
+    }),
+  );
+});
+
+test("omitted optional guest fields match their normalised null values", (t) => {
+  const storage = storageFixture(t);
+  storage.createRun({
+    runId: "guest-optional-attribution",
+    propertyKey: "olympic_paddington",
+    mode: "incremental",
+    querySha256: QUERY_HASH,
+    parserVersion: "2.3.0",
+  });
+  storage.createPhase({
+    runId: "guest-optional-attribution",
+    phaseKey: "primary",
+    sorter: "NEWEST_FIRST",
+  });
+  const reviewWithNormalisedGuestFields = review("guest-optional");
+  reviewWithNormalisedGuestFields.guestDetails = {
+    ...reviewWithNormalisedGuestFields.guestDetails,
+    userReviewCount: null,
+    joinedDate: null,
+  };
+
+  assert.doesNotThrow(() =>
+    storage.stagePage({
+      runId: "guest-optional-attribution",
+      phaseKey: "primary",
+      sourceOffset: 0,
+      requestedLimit: 10,
+      reportedReviewCount: 1,
+      reviews: [reviewWithNormalisedGuestFields],
+    }),
   );
 });
 

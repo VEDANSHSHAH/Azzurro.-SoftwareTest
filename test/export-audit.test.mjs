@@ -475,6 +475,75 @@ test("accepts only the exact known Central advertised/retrievable gap", () => {
   }
 });
 
+test("audits Central visible-count gaps through five without bucket metadata", () => {
+  const records = [
+    record({ property: CENTRAL, reviewId: "1".repeat(24) }),
+    record({ property: CENTRAL, reviewId: "2".repeat(24) }),
+  ];
+  const accepted = manifest(records, {
+    properties: [CENTRAL],
+    requestedPropertyCount: 1,
+  });
+  Object.assign(accepted.properties[0], {
+    advertisedReviews: 4,
+    retrievableReviews: 2,
+    sourceReviewGap: 2,
+    sourceDiscrepancyKind: "booking_visible_count_gap_v1",
+    sourceDiscrepancyScoreBucket: null,
+    advertisedBucketReviews: null,
+    retrievableBucketReviews: null,
+  });
+  assert.equal(
+    auditExportData({
+      manifest: accepted,
+      records,
+      configuredProperties: [CENTRAL],
+    }).ok,
+    true,
+  );
+
+  const five = structuredClone(accepted);
+  Object.assign(five.properties[0], {
+    advertisedReviews: 7,
+    sourceReviewGap: 5,
+  });
+  assert.equal(
+    auditExportData({
+      manifest: five,
+      records,
+      configuredProperties: [CENTRAL],
+    }).ok,
+    true,
+  );
+
+  for (const mutate of [
+    (property) => {
+      property.advertisedReviews = 8;
+      property.sourceReviewGap = 6;
+    },
+    (property) => {
+      property.sourceDiscrepancyScoreBucket =
+        "REVIEW_ADJ_AVERAGE_PASSABLE";
+    },
+    (property) => {
+      property.bookingHotelId = 9_888_183;
+    },
+  ]) {
+    const invalid = structuredClone(accepted);
+    mutate(invalid.properties[0]);
+    const result = auditExportData({
+      manifest: invalid,
+      records,
+      configuredProperties: [CENTRAL],
+    });
+    assert.equal(result.ok, false);
+    assert.ok(
+      errorCodes(result).has("MANIFEST_SOURCE_COUNT_MISMATCH") ||
+        errorCodes(result).has("MANIFEST_PROPERTY_IDENTITY_MISMATCH"),
+    );
+  }
+});
+
 test("rejects hidden or partial source-gap metadata on a normal export", () => {
   const records = [
     record(),

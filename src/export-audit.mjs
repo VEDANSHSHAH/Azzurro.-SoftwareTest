@@ -15,6 +15,10 @@ import {
   maxAllowedSourceGap,
   SOURCE_GAP_CONTRACT,
 } from "./source-discrepancy.mjs";
+import {
+  identifyVisibleCountGap,
+  VISIBLE_COUNT_GAP_CONTRACT,
+} from "./visible-count-discrepancy.mjs";
 import { REVIEW_SCORE_RANGE_VALUES } from "./live-template.mjs";
 
 export const EXPORT_AUDIT_CONTRACT_VERSION = 1;
@@ -194,6 +198,24 @@ function validManifestSourceCounts(property) {
     return (
       property.advertisedReviews === property.retrievableReviews &&
       property.sourceDiscrepancyKind === null &&
+      property.sourceDiscrepancyScoreBucket === null &&
+      property.advertisedBucketReviews === null &&
+      property.retrievableBucketReviews === null
+    );
+  }
+  if (
+    property.sourceDiscrepancyKind ===
+    VISIBLE_COUNT_GAP_CONTRACT.contractKind
+  ) {
+    const visibleGap = identifyVisibleCountGap({
+      propertyKey: property.propertyKey,
+      bookingHotelId: property.bookingHotelId,
+      visibleReviewCount: property.advertisedReviews,
+      structuredReviewCount: property.retrievableReviews,
+    });
+    return (
+      visibleGap !== null &&
+      visibleGap.gapCount === property.sourceReviewGap &&
       property.sourceDiscrepancyScoreBucket === null &&
       property.advertisedBucketReviews === null &&
       property.retrievableBucketReviews === null

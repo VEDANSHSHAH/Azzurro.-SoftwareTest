@@ -12,7 +12,8 @@ it contains the complete table and index structure but no properties, reviews,
 collection runs, or publications. Each machine collects and verifies its own
 public review data before using the dashboard.
 
-All four properties collect and publish normally, Central Sydney included.
+The normal path requires exact visible and structured counts. Central Sydney has
+one explicit exception for a Booking-side visible-count lag, described below.
 
 The original Surry Hills property was replaced with Olympic Paddington as
 requested by the interviewer.
@@ -38,11 +39,14 @@ error or a requirement:
   add up to exactly the whole gap.
 - Anything wider still fails closed and publishes nothing.
 
-Central Sydney is the property where this was first observed: an earlier
-diagnostic saw 2,537 advertised against 2,536 retrievable. Booking has since
-reconciled it, and Central now collects a complete 2,537 with no gap. Because
-the tolerance is derived from live evidence rather than pinned to one hotel and
-one hard-coded shape, both states publish correctly.
+Central Sydney can also expose a separate discrepancy between the count in
+Booking's visible review modal and the complete, internally consistent
+`ReviewList` inventory. Only Central Sydney's exact configured property key and
+Booking hotel ID may use this exception, and only when the visible count is one
+to five higher. The exact visible and structured counts are stored in an
+immutable run attestation and shown in the dashboard. Every other property
+still requires exact visible/structured equality. Missing rows are never
+fabricated.
 
 ## What the dashboard includes
 
@@ -264,6 +268,9 @@ Accuracy is enforced before publication, not estimated afterwards:
 - Five disjoint Booking score buckets must reconcile to the advertised total.
 - The advertised total and the retrievable inventory must match, or differ by no
   more than the bounded gap described above, which is then disclosed.
+- Central Sydney alone may have a stored visible-modal versus structured-list
+  difference of one to five; both complete structured passes must still match
+  exactly and the published count is always the number of real returned rows.
 - A non-empty property must expose a non-empty category-score profile.
 - Every review must satisfy the strict parser contract.
 - Source review IDs must be unique within a page and across the inventory.
@@ -385,7 +392,7 @@ not have to add to 100%.
 ## Commands
 
 ```bash
-npm test                         # 228 scraper/backend tests
+npm test                         # 238 scraper/backend tests
 npm run test:coverage
 npm run dashboard:api
 npm run dashboard:dev
@@ -413,12 +420,12 @@ npm test --prefix dashboard
 
 ## Verification completed
 
-- Root suite: **228 tests**, **222 passed**, **0 failed**, **6 skipped**.
+- Root suite: **238 tests**, **232 passed**, **0 failed**, **6 skipped**.
   The skipped cases require the original private HAR captures; equivalent
   sanitized contract fixtures run in the normal suite.
-- Live collection: all four properties were collected end to end against
-  Booking, including Central Sydney at 2,537 reviews across two independent
-  opposite-order passes with exact identity and record parity.
+- Live collection evidence is local and time-dependent. The latest accepted
+  publication counts should be read from the dashboard's Data quality page;
+  failed or incomplete live attempts do not replace an accepted generation.
 - Dashboard: ESLint passed, TypeScript passed, five-environment production
   build passed, and two rendered-production tests passed.
 - Browser QA: all six workspaces, exact source category scores, the
@@ -462,8 +469,9 @@ keys, session cookies, or personal account credentials are required or stored.
   silently publishing partial data.
 - Booking frequently serves a challenge page to a headless browser. Collect with
   `--headed --interactive-challenge` if a run fails with `CHALLENGE`.
-- A tolerated source gap means those reviews are advertised by Booking but never
-  served by its review list, so they cannot be collected by any method.
+- A tolerated count difference means Booking displayed or aggregated more rows
+  than its structured review list served during that run. The app publishes
+  only returned, twice-verified rows and clearly discloses the exact difference.
 - Full refreshes prioritize proof over speed and can take time for properties
   with thousands of reviews.
 - Collection is manually started; no scheduler, watchdog, automatic restart, or

@@ -8,6 +8,7 @@ import {
   assertSourceGap,
   SOURCE_GAP_CONTRACT,
 } from "./source-discrepancy.mjs";
+import { safeVisibleCountGap } from "./visible-count-discrepancy.mjs";
 
 const SHA256 = /^[a-f0-9]{64}$/i;
 
@@ -331,6 +332,16 @@ function authoritativePublicationEvidence(storage, stats) {
     typeof runId === "string"
       ? storage.getSourceDiscrepancyAttestation(runId)
       : null;
+  const snapshot =
+    typeof storage.getSnapshot === "function" &&
+    typeof runId === "string"
+      ? storage.getSnapshot(runId)
+      : null;
+  const visibleCountDiscrepancy =
+    typeof storage.getVisibleCountDiscrepancyAttestation ===
+      "function" && typeof runId === "string"
+      ? storage.getVisibleCountDiscrepancyAttestation(runId)
+      : null;
 
   if (!run) {
     reasons.push("latest_run_missing");
@@ -403,12 +414,67 @@ function authoritativePublicationEvidence(storage, stats) {
   ) {
     reasons.push("source_discrepancy_attestation_invalid");
   }
+  let normalizedVisibleCountDiscrepancy = null;
+  if (!snapshot) {
+    reasons.push("property_snapshot_missing");
+  } else if (
+    snapshot.structured_review_count !== run?.source_count_final ||
+    snapshot.structured_review_count !== stats?.presentCount
+  ) {
+    reasons.push("property_snapshot_count_mismatch");
+  } else if (sourceDiscrepancy !== null) {
+    if (visibleCountDiscrepancy !== null) {
+      reasons.push("conflicting_count_discrepancy_attestations");
+    }
+    if (
+      normalizedSourceDiscrepancy !== null &&
+      (snapshot.displayed_review_count !==
+        normalizedSourceDiscrepancy.advertisedReviewCount ||
+        snapshot.structured_review_count !==
+          normalizedSourceDiscrepancy.retrievableReviewCount)
+    ) {
+      reasons.push("source_discrepancy_snapshot_mismatch");
+    }
+  } else if (
+    snapshot.displayed_review_count !==
+    snapshot.structured_review_count
+  ) {
+    const visibleGap = safeVisibleCountGap(
+      visibleCountDiscrepancy,
+    );
+    if (
+      visibleGap === null ||
+      visibleGap.propertyKey !== stats?.property?.property_key ||
+      visibleGap.bookingHotelId !==
+        stats?.property?.booking_hotel_id ||
+      visibleGap.visibleReviewCount !==
+        snapshot.displayed_review_count ||
+      visibleGap.structuredReviewCount !==
+        snapshot.structured_review_count
+    ) {
+      reasons.push("visible_count_discrepancy_invalid");
+    } else {
+      normalizedVisibleCountDiscrepancy = {
+        contractKind: visibleGap.contractKind,
+        advertisedReviewCount: visibleGap.visibleReviewCount,
+        retrievableReviewCount: visibleGap.structuredReviewCount,
+        gapCount: visibleGap.gapCount,
+        scoreBucket: null,
+        advertisedBucketCount: null,
+        retrievableBucketCount: null,
+      };
+    }
+  } else if (visibleCountDiscrepancy !== null) {
+    reasons.push("unexpected_visible_count_discrepancy");
+  }
   return {
     authoritative: reasons.length === 0,
     missing: false,
     reasons,
     run,
-    sourceDiscrepancy: normalizedSourceDiscrepancy,
+    sourceDiscrepancy:
+      normalizedSourceDiscrepancy ??
+      normalizedVisibleCountDiscrepancy,
   };
 }
 

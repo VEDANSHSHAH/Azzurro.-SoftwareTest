@@ -174,6 +174,8 @@ function authoritativeFixture(propertyKeys, overrides = {}) {
   const runsById = new Map();
   const attestationsById = new Map();
   const sourceDiscrepanciesById = new Map();
+  const visibleCountDiscrepanciesById = new Map();
+  const snapshotsById = new Map();
   const reviewReads = [];
 
   propertyKeys.forEach((propertyKey, index) => {
@@ -217,6 +219,11 @@ function authoritativeFixture(propertyKeys, overrides = {}) {
       newest_terminal_offset: 0,
       final_head_response_sha256: "c".repeat(64),
     });
+    snapshotsById.set(runId, {
+      run_id: runId,
+      structured_review_count: 0,
+      displayed_review_count: 0,
+    });
   });
 
   const storage = {
@@ -232,6 +239,12 @@ function authoritativeFixture(propertyKeys, overrides = {}) {
     getSourceDiscrepancyAttestation(runId) {
       return sourceDiscrepanciesById.get(runId) ?? null;
     },
+    getVisibleCountDiscrepancyAttestation(runId) {
+      return visibleCountDiscrepanciesById.get(runId) ?? null;
+    },
+    getSnapshot(runId) {
+      return snapshotsById.get(runId) ?? null;
+    },
     getCurrentReviews(propertyKey) {
       reviewReads.push(propertyKey);
       return [];
@@ -244,6 +257,8 @@ function authoritativeFixture(propertyKeys, overrides = {}) {
     runsById,
     attestationsById,
     sourceDiscrepanciesById,
+    visibleCountDiscrepanciesById,
+    snapshotsById,
     reviewReads,
   };
 }
@@ -435,6 +450,13 @@ function centralFixture() {
     "full-central_sydney",
     centralDiscrepancy(),
   );
+  Object.assign(
+    fixture.snapshotsById.get("full-central_sydney"),
+    {
+      structured_review_count: 2_536,
+      displayed_review_count: 2_537,
+    },
+  );
   return fixture;
 }
 
@@ -465,8 +487,92 @@ function advancedCentralFixture() {
       ({ value }) => value === "REVIEW_ADJ_GOOD",
     ).count += 1;
   }
+  Object.assign(
+    fixture.snapshotsById.get("full-central_sydney"),
+    {
+      structured_review_count: 2_537,
+      displayed_review_count: 2_538,
+    },
+  );
   return fixture;
 }
+
+function centralVisibleCountFixture({ gap = 2 } = {}) {
+  const fixture = authoritativeFixture(["central_sydney"]);
+  const runId = "full-central_sydney";
+  const stats = fixture.statsByKey.get("central_sydney");
+  const run = fixture.runsById.get(runId);
+  const inventory = fixture.attestationsById.get(runId);
+  const structuredCount = 2_534;
+  const visibleCount = structuredCount + gap;
+  stats.property.booking_hotel_id = 9_888_182;
+  stats.presentCount = structuredCount;
+  run.source_count_final = structuredCount;
+  Object.assign(inventory, {
+    expected_count: structuredCount,
+    oldest_unique_count: structuredCount,
+    newest_unique_count: structuredCount,
+    oldest_terminal_offset: 2_540,
+    newest_terminal_offset: 2_540,
+  });
+  Object.assign(fixture.snapshotsById.get(runId), {
+    structured_review_count: structuredCount,
+    displayed_review_count: visibleCount,
+  });
+  fixture.visibleCountDiscrepanciesById.set(runId, {
+    contractKind: "booking_visible_count_gap_v1",
+    contractVersion: 1,
+    propertyKey: "central_sydney",
+    bookingHotelId: 9_888_182,
+    visibleReviewCount: visibleCount,
+    structuredReviewCount: structuredCount,
+    gapCount: gap,
+    attestedAtUtc: "2026-08-03T00:00:00.000Z",
+  });
+  return fixture;
+}
+
+test("exports Central's attested visible-count gap without bucket claims", () => {
+  const fixture = centralVisibleCountFixture();
+  const exported = collectExportRecords(
+    fixture.storage,
+    ["central_sydney"],
+    { strictAll: true, samplePerProperty: 1 },
+  );
+  assert.deepEqual(
+    {
+      advertisedReviews: exported.properties[0].advertisedReviews,
+      retrievableReviews: exported.properties[0].retrievableReviews,
+      sourceReviewGap: exported.properties[0].sourceReviewGap,
+      sourceDiscrepancyKind:
+        exported.properties[0].sourceDiscrepancyKind,
+      sourceDiscrepancyScoreBucket:
+        exported.properties[0].sourceDiscrepancyScoreBucket,
+    },
+    {
+      advertisedReviews: 2_536,
+      retrievableReviews: 2_534,
+      sourceReviewGap: 2,
+      sourceDiscrepancyKind: "booking_visible_count_gap_v1",
+      sourceDiscrepancyScoreBucket: null,
+    },
+  );
+
+  const tooLarge = centralVisibleCountFixture({ gap: 6 });
+  assert.throws(
+    () =>
+      collectExportRecords(
+        tooLarge.storage,
+        ["central_sydney"],
+        { strictAll: true },
+      ),
+    (error) =>
+      error instanceof ExportValidationError &&
+      error.details.nonAuthoritativeProperties[0].reasons.includes(
+        "visible_count_discrepancy_invalid",
+      ),
+  );
+});
 
 test("exports the exact persisted Central source gap as safe manifest fields", () => {
   const fixture = centralFixture();
@@ -600,6 +706,9 @@ test("rejects malformed, unexpected, or drifting source-gap attestations", () =>
   // healthy case rather than a missing exception.
   const noGap = centralFixture();
   noGap.sourceDiscrepanciesById.clear();
+  noGap.snapshotsById.get(
+    "full-central_sydney",
+  ).displayed_review_count = 2_536;
   const exported = collectExportRecords(
     noGap.storage,
     ["central_sydney"],

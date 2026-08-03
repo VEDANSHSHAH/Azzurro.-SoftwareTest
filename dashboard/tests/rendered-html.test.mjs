@@ -126,7 +126,7 @@ test("finished source contains the six reusable workspaces and no preview shell"
   assert.match(qualityView, /SOURCE_GAP_VERIFIED_LABEL/);
   assert.match(
     publicationStatus,
-    /Verified with 1-review disclosure/,
+    /Verified with Booking count disclosure/,
   );
   assert.match(
     publicationStatus,

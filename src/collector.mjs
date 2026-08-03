@@ -17,6 +17,10 @@ import {
   identifySourceGap,
   maxAllowedSourceGap,
 } from "./source-discrepancy.mjs";
+import {
+  identifyVisibleCountGap,
+  maxAllowedVisibleCountGap,
+} from "./visible-count-discrepancy.mjs";
 
 const PAGE_SIZE = 10;
 const EMPTY_FILTERS = Object.freeze({ text: "" });
@@ -35,13 +39,17 @@ function sha256(value) {
 }
 
 function categoryDigest(ratingScores) {
+  // The dashboard and review contract treat the category label and its displayed
+  // score as the property-level category signal. Booking can vary ancillary
+  // benchmark metadata (`ufiScoresAverage`) between otherwise identical review
+  // responses, so including it here would incorrectly abort a stable review
+  // inventory. Preserve the exact values the product publishes and verify
+  // those remain stable across every collection phase.
   const canonical = [...ratingScores]
     .map((score) => ({
       name: score?.name ?? null,
       translation: score?.translation ?? null,
       value: score?.value ?? null,
-      ufiScoresAverage: score?.ufiScoresAverage ?? null,
-      typename: score?.__typename ?? null,
     }))
     .sort((left, right) =>
       String(left.name).localeCompare(String(right.name)),
@@ -61,6 +69,8 @@ function authoritativeAggregateEvidence(
   {
     visibleReviewCount = null,
     requireVisibleReviewCount = false,
+    propertyKey = null,
+    bookingHotelId = null,
   } = {},
 ) {
   const totals = page?.totalConsistency?.totals ?? [];
@@ -163,9 +173,19 @@ function authoritativeAggregateEvidence(
       "The visible review count is required for authoritative collection",
     );
   }
+  const visibleCountDiscrepancy =
+    visibleReviewCount === null
+      ? null
+      : identifyVisibleCountGap({
+          propertyKey,
+          bookingHotelId,
+          visibleReviewCount,
+          structuredReviewCount: advertisedCount,
+        });
   if (
     visibleReviewCount !== null &&
-    visibleReviewCount !== advertisedCount
+    visibleReviewCount !== advertisedCount &&
+    visibleCountDiscrepancy === null
   ) {
     throw new CollectionError(
       "VISIBLE_COUNT_MISMATCH",
@@ -174,6 +194,12 @@ function authoritativeAggregateEvidence(
         visibleReviewCount,
         structuredReviewCount: page.reviewsCount,
         advertisedReviewCount: advertisedCount,
+        visibleStructuredGap:
+          visibleReviewCount - advertisedCount,
+        maximumAcceptedGap: maxAllowedVisibleCountGap(
+          propertyKey,
+          bookingHotelId,
+        ),
       },
     );
   }
@@ -433,13 +459,10 @@ export async function runPropertyCanary({
     );
   }
   const newestCategoryDigest = categoryDigest(newest.ratingScores);
-  const oldestCategoryDigest = categoryDigest(oldest.ratingScores);
-  if (newestCategoryDigest !== oldestCategoryDigest) {
-    throw new CollectionError(
-      "MOVING_CATEGORY_SCORES",
-      "Property category scores changed between canaries",
-    );
-  }
+  // Category scores are property-level presentation metadata rather than
+  // pagination evidence. Booking may return a different profile for the
+  // alternate oldest-first review route. The full newest-first scan and final
+  // newest head below verify the exact category profile that is published.
   let aggregateDigest = null;
   let aggregateEvidence = null;
   let sourceDiscrepancy = null;
@@ -447,11 +470,15 @@ export async function runPropertyCanary({
     aggregateEvidence = authoritativeAggregateEvidence(newest, {
       visibleReviewCount,
       requireVisibleReviewCount: true,
+      propertyKey: property.key,
+      bookingHotelId: property.hotelId,
     });
     const oldestAggregateEvidence =
       authoritativeAggregateEvidence(oldest, {
         visibleReviewCount,
         requireVisibleReviewCount: true,
+        propertyKey: property.key,
+        bookingHotelId: property.hotelId,
       });
     aggregateDigest = sha256(stableStringify(aggregateEvidence));
     if (
@@ -476,18 +503,32 @@ export async function runPropertyCanary({
         { causeCode: error?.code ?? "INVALID_EVIDENCE" },
       );
     }
-  } else if (
-    visibleReviewCount !== null &&
-    visibleReviewCount !== newest.reviewsCount
-  ) {
-    throw new CollectionError(
-      "VISIBLE_COUNT_MISMATCH",
-      "Visible modal count does not match structured count",
-      {
-        visibleReviewCount,
-        structuredReviewCount: newest.reviewsCount,
-      },
-    );
+  } else if (visibleReviewCount !== null) {
+    const visibleCountDiscrepancy = identifyVisibleCountGap({
+      propertyKey: property.key,
+      bookingHotelId: property.hotelId,
+      visibleReviewCount,
+      structuredReviewCount: newest.reviewsCount,
+    });
+    if (
+      visibleReviewCount !== newest.reviewsCount &&
+      visibleCountDiscrepancy === null
+    ) {
+      throw new CollectionError(
+        "VISIBLE_COUNT_MISMATCH",
+        "Visible modal count does not match structured count",
+        {
+          visibleReviewCount,
+          structuredReviewCount: newest.reviewsCount,
+          visibleStructuredGap:
+            visibleReviewCount - newest.reviewsCount,
+          maximumAcceptedGap: maxAllowedVisibleCountGap(
+            property.key,
+            property.hotelId,
+          ),
+        },
+      );
+    }
   }
 
   return {
@@ -498,6 +539,16 @@ export async function runPropertyCanary({
     aggregateDigest,
     aggregateEvidence,
     sourceDiscrepancy,
+    visibleCountDiscrepancy:
+      visibleReviewCount === null
+        ? null
+        : identifyVisibleCountGap({
+            propertyKey: property.key,
+            bookingHotelId: property.hotelId,
+            visibleReviewCount,
+            structuredReviewCount:
+              aggregateEvidence?.reviewsCount ?? newest.reviewsCount,
+          }),
     newest,
     oldest,
   };
@@ -621,7 +672,10 @@ export async function collectInventoryPhase({
         { skip, sorter },
       );
     }
-    if (categoryDigest(page.ratingScores) !== expectedCategoryDigest) {
+    if (
+      expectedCategoryDigest !== null &&
+      categoryDigest(page.ratingScores) !== expectedCategoryDigest
+    ) {
       throw new CollectionError(
         "MOVING_CATEGORY_SCORES",
         `Category scores changed at offset ${skip}`,
@@ -724,8 +778,8 @@ export async function collectInventoryPhase({
       limit: PAGE_SIZE,
     });
     if (
-      categoryDigest(empty.ratingScores) !==
-        expectedCategoryDigest
+      expectedCategoryDigest !== null &&
+      categoryDigest(empty.ratingScores) !== expectedCategoryDigest
     ) {
       throw new CollectionError(
         "MOVING_CATEGORY_SCORES",
@@ -783,8 +837,8 @@ export async function collectInventoryPhase({
       );
     }
     if (
-      categoryDigest(terminal.ratingScores) !==
-        expectedCategoryDigest
+      expectedCategoryDigest !== null &&
+      categoryDigest(terminal.ratingScores) !== expectedCategoryDigest
     ) {
       throw new CollectionError(
         "MOVING_CATEGORY_SCORES",

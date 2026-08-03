@@ -177,15 +177,22 @@ export function QualityView({ data }: { data: DashboardPayload }) {
                 </dl>
                 {property.sourceDiscrepancy ? (
                   <p className="quality-property__exception">
-                    Stored exception:{" "}
-                    {formatCount(
-                      property.sourceDiscrepancy.advertisedBucketReviews,
-                    )}{" "}
-                    advertised versus{" "}
-                    {formatCount(
-                      property.sourceDiscrepancy.retrievableBucketReviews,
-                    )}{" "}
-                    retrievable in Booking’s 5–7 score bucket.
+                    {property.sourceDiscrepancy.advertisedBucketReviews !=
+                      null &&
+                    property.sourceDiscrepancy.retrievableBucketReviews !=
+                      null
+                      ? `Stored structured-list exception: ${formatCount(
+                          property.sourceDiscrepancy
+                            .advertisedBucketReviews,
+                        )} advertised versus ${formatCount(
+                          property.sourceDiscrepancy
+                            .retrievableBucketReviews,
+                        )} retrievable in Booking's disclosed score bucket.`
+                      : `Stored visible-count evidence: ${formatCount(
+                          property.sourceDiscrepancy.advertisedReviews,
+                        )} displayed versus ${formatCount(
+                          property.sourceDiscrepancy.retrievableReviews,
+                        )} returned by the structured review list.`}
                   </p>
                 ) : null}
               </div>
@@ -255,9 +262,10 @@ export function QualityView({ data }: { data: DashboardPayload }) {
             <article>
               <AlertCircle aria-hidden="true" size={18} />
               <p>
-                Central Sydney advertises one more review than its structured
-                list returns. The app discloses the gap and never invents the
-                missing review.
+                Central Sydney may be accepted when Booking&apos;s visible count is
+                up to five above its complete, internally consistent structured
+                list. The exact difference is disclosed and no unavailable row
+                is invented.
               </p>
             </article>
           </div>

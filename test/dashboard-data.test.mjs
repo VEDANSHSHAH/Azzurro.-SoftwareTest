@@ -105,6 +105,16 @@ async function fixture() {
       advertised_score_buckets_json TEXT,
       retrievable_score_buckets_json TEXT
     );
+    CREATE TABLE visible_count_discrepancy_attestations (
+      run_id TEXT,
+      contract_version INTEGER,
+      contract_kind TEXT,
+      property_key TEXT,
+      booking_hotel_id INTEGER,
+      visible_review_count INTEGER,
+      structured_review_count INTEGER,
+      gap_count INTEGER
+    );
     CREATE TABLE reviews (
       review_id TEXT PRIMARY KEY,
       property_id INTEGER,
@@ -494,6 +504,91 @@ test("Central source gap is accepted only with the exact stored attestation", ()
     ).status,
     "evidence-error",
   );
+});
+
+test("Central visible-count gaps through five require their exact attestation", () => {
+  const base = {
+    published_run_id: "central-visible-run",
+    property_key: "central_sydney",
+    booking_hotel_id: 9888182,
+    displayed_review_count: 2536,
+    source_count_final: 2534,
+    structured_review_count: 2534,
+    oldest_unique_count: 2534,
+    newest_unique_count: 2534,
+    oldest_identity_sha256: HASH_A,
+    newest_identity_sha256: HASH_A,
+    oldest_records_sha256: HASH_B,
+    newest_records_sha256: HASH_B,
+    discrepancy_contract_version: null,
+    discrepancy_contract_kind: null,
+    visible_gap_contract_version: 1,
+    visible_gap_contract_kind: "booking_visible_count_gap_v1",
+    visible_gap_property_key: "central_sydney",
+    visible_gap_booking_hotel_id: 9888182,
+    visible_gap_visible_review_count: 2536,
+    visible_gap_structured_review_count: 2534,
+    visible_gap_count: 2,
+  };
+  const accepted = dashboardDataInternals.validatePropertyEvidence(
+    base,
+    2534,
+  );
+  assert.equal(accepted.status, "source-gap");
+  assert.deepEqual(accepted.sourceDiscrepancy, {
+    sourceDiscrepancyKind: "booking_visible_count_gap_v1",
+    advertisedReviews: 2536,
+    retrievableReviews: 2534,
+    sourceReviewGap: 2,
+    sourceDiscrepancyScoreBucket: null,
+    advertisedBucketReviews: null,
+    retrievableBucketReviews: null,
+  });
+
+  const gapFive = {
+    ...base,
+    displayed_review_count: 2539,
+    visible_gap_visible_review_count: 2539,
+    visible_gap_count: 5,
+  };
+  assert.equal(
+    dashboardDataInternals.validatePropertyEvidence(
+      gapFive,
+      2534,
+    ).status,
+    "source-gap",
+  );
+
+  for (const invalid of [
+    {
+      ...base,
+      displayed_review_count: 2540,
+      visible_gap_visible_review_count: 2540,
+      visible_gap_count: 6,
+    },
+    {
+      ...base,
+      visible_gap_contract_version: null,
+      visible_gap_contract_kind: null,
+    },
+    {
+      ...base,
+      property_key: "potts_point",
+      booking_hotel_id: 9491412,
+    },
+    {
+      ...base,
+      visible_gap_structured_review_count: 2533,
+    },
+  ]) {
+    assert.equal(
+      dashboardDataInternals.validatePropertyEvidence(
+        invalid,
+        2534,
+      ).status,
+      "evidence-error",
+    );
+  }
 });
 
 test("dashboard evidence follows the accepted live snapshot, not stale config", () => {

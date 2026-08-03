@@ -208,9 +208,9 @@ export interface QualityProperty {
     advertisedReviews: number;
     retrievableReviews: number;
     sourceReviewGap: number;
-    sourceDiscrepancyScoreBucket: string;
-    advertisedBucketReviews: number;
-    retrievableBucketReviews: number;
+    sourceDiscrepancyScoreBucket: string | null;
+    advertisedBucketReviews: number | null;
+    retrievableBucketReviews: number | null;
   } | null;
   note: string;
 }

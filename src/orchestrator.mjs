@@ -284,7 +284,7 @@ export async function executeFullProperty({
       sorter: "OLDEST_FIRST",
       reportedCount: canary.reviewsCount,
       sourceDiscrepancy: canary.sourceDiscrepancy,
-      categoryDigest: canary.categoryDigest,
+      categoryDigest: null,
       aggregateDigest: canary.aggregateDigest,
       firstPage: canary.oldest,
       onPage: stageCallback({

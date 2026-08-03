@@ -88,7 +88,8 @@ const summary = {
         : "no_publication_in_canary_mode",
     multiPropertyPublicationAtomic:
       options.mode === "full" ? false : null,
-    stopAfterFirstPropertyFailure: options.mode === "full",
+    stopAfterFirstPropertyFailure: false,
+    continueAfterPropertyValidationFailure: true,
     strictAllExportRequiresEveryConfiguredFullPublication: true,
   },
   requestedProperties: properties.map((property) => property.key),
@@ -113,11 +114,10 @@ const browser = await launchScraperBrowser({
 });
 let circuitOpen = false;
 let consecutiveReviewCaptureTimeouts = 0;
-let stopAfterPropertyFailure = false;
 
 try {
   for (const property of properties) {
-    if (circuitOpen || stopAfterPropertyFailure) break;
+    if (circuitOpen) break;
     process.stdout.write(
       `[${new Date().toISOString()}] ${options.mode}: ${property.key}\n`,
     );
@@ -125,6 +125,12 @@ try {
     try {
       session = await browser.openPropertySession(property, {
         requestTimeoutMs: options.requestTimeoutMs,
+        // The browser capture must remain available for the same bounded
+        // window advertised to a human when Booking presents verification.
+        // It never solves the challenge; it only avoids timing out first.
+        captureTimeoutMs: options.interactiveChallenge
+          ? Math.max(30_000, options.challengeTimeoutMs)
+          : undefined,
       });
       let result;
       if (options.mode === "canary") {
@@ -198,10 +204,6 @@ try {
           propertyKey: property.key,
           code: failure.error.code,
         };
-      }
-      if (options.mode === "full") {
-        stopAfterPropertyFailure = true;
-        summary.stoppedAfterPropertyFailure = property.key;
       }
     } finally {
       await session?.close().catch(() => {});

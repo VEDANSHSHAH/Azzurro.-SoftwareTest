@@ -1,7 +1,7 @@
 import type { PropertyMetric } from "./types";
 
 export const SOURCE_GAP_VERIFIED_LABEL =
-  "Verified with 1-review disclosure";
+  "Verified with Booking count disclosure";
 
 export function isAcceptedPublication(
   status: PropertyMetric["status"],

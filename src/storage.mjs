@@ -13,6 +13,10 @@ import {
   SOURCE_GAP_CONTRACT,
   maxAllowedSourceGap,
 } from "./source-discrepancy.mjs";
+import {
+  identifyVisibleCountGap,
+  safeVisibleCountGap,
+} from "./visible-count-discrepancy.mjs";
 
 export class StorageError extends Error {
   constructor(message, code = "STORAGE_ERROR", details = {}) {
@@ -25,6 +29,18 @@ export class StorageError extends Error {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function semanticGuestDetailsForAttribution(details) {
+  if (details == null) return null;
+  // Booking legitimately omits these two query-conditional fields, while the
+  // response contract normalises absent values to null. Compare that semantic
+  // form without altering the raw source card retained for audit.
+  return {
+    ...details,
+    userReviewCount: details.userReviewCount ?? null,
+    joinedDate: details.joinedDate ?? null,
+  };
 }
 
 function assertNonEmptyString(value, label) {
@@ -531,8 +547,13 @@ function parseSourceCard(review, normalized) {
     textTrivialFlag: normalized.textTrivialFlag,
     partnerReply: normalized.partnerReply,
     bookingDetails: normalized.bookingDetails,
-    guestDetails: normalized.guestDetails,
-    photos: normalized.photos,
+    guestDetails: semanticGuestDetailsForAttribution(
+      normalized.guestDetails,
+    ),
+    // `semanticSourceCard` retains the same asset identity as the normalised
+    // review, with only a rotating Booking CDN hostname removed. Keep raw URLs
+    // elsewhere for display, but compare this semantic representation here.
+    photos: semanticSourceCard.photos ?? [],
     helpfulVotesCount: normalized.helpfulVotesCount,
     positiveHighlights: normalized.positiveHighlights,
     negativeHighlights: normalized.negativeHighlights,
@@ -548,7 +569,9 @@ function parseSourceCard(review, normalized) {
     textTrivialFlag: sourceText.textTrivialFlag ?? null,
     partnerReply: normalizeSourceString(sourceCard.partnerReply?.reply),
     bookingDetails: sourceCard.bookingDetails ?? null,
-    guestDetails: sourceCard.guestDetails ?? null,
+    guestDetails: semanticGuestDetailsForAttribution(
+      sourceCard.guestDetails,
+    ),
     photos: semanticSourceCard.photos ?? [],
     helpfulVotesCount: sourceCard.helpfulVotesCount ?? null,
     positiveHighlights: sourceCard.positiveHighlights ?? [],
@@ -558,9 +581,15 @@ function parseSourceCard(review, normalized) {
     editUrl: normalizeSourceString(sourceCard.editUrl),
   };
   if (canonicalJson(actualFields) !== canonicalJson(expectedFields)) {
+    const mismatchedFields = Object.keys(expectedFields).filter(
+      (field) =>
+        canonicalJson(actualFields[field]) !==
+        canonicalJson(expectedFields[field]),
+    );
     throw new StorageError(
       "Normalized review fields do not match the retained source card",
       "REVIEW_ATTRIBUTION_MISMATCH",
+      { mismatchedFields },
     );
   }
   return { sourceCard, semanticSourceCard };
@@ -1120,6 +1149,24 @@ export class ReviewStorage {
                                          length(count_evidence_sha256) = 64
                                        ),
         attested_at_utc                 TEXT NOT NULL
+      ) STRICT;
+
+      CREATE TABLE IF NOT EXISTS visible_count_discrepancy_attestations (
+        run_id                   TEXT PRIMARY KEY
+                                 REFERENCES scrape_runs(run_id),
+        contract_version         INTEGER NOT NULL
+                                 CHECK (contract_version = 1),
+        contract_kind            TEXT NOT NULL,
+        property_key             TEXT NOT NULL,
+        booking_hotel_id         INTEGER NOT NULL
+                                 CHECK (booking_hotel_id > 0),
+        visible_review_count     INTEGER NOT NULL
+                                 CHECK (visible_review_count >= 0),
+        structured_review_count  INTEGER NOT NULL
+                                 CHECK (structured_review_count >= 0),
+        gap_count                INTEGER NOT NULL
+                                 CHECK (gap_count BETWEEN 1 AND 5),
+        attested_at_utc          TEXT NOT NULL
       ) STRICT;
     `);
   }
@@ -2922,6 +2969,63 @@ export class ReviewStorage {
           "INVALID_SNAPSHOT",
         );
       }
+      let visibleCountGap = null;
+      if (displayedCount !== null && displayedCount !== finalCount) {
+        const identity = this.#db
+          .prepare(
+            `SELECT property_key, booking_hotel_id
+               FROM properties
+              WHERE property_id = ?`,
+          )
+          .get(run.property_id);
+        const structuredSourceGap =
+          this.getSourceDiscrepancyAttestation(runId);
+        const structuredSourceGapMatches =
+          structuredSourceGap !== null &&
+          structuredSourceGap.advertisedReviewCount === displayedCount &&
+          structuredSourceGap.retrievableReviewCount === finalCount;
+        visibleCountGap =
+          structuredSourceGap === null
+            ? identifyVisibleCountGap({
+                propertyKey: identity?.property_key,
+                bookingHotelId: identity?.booking_hotel_id,
+                visibleReviewCount: displayedCount,
+                structuredReviewCount: finalCount,
+              })
+            : null;
+        if (!structuredSourceGapMatches && visibleCountGap === null) {
+          throw new StorageError(
+            "Displayed and structured review counts do not match an accepted discrepancy contract",
+            "DISPLAYED_COUNT_MISMATCH",
+            {
+              propertyKey: identity?.property_key ?? null,
+              displayedReviewCount: displayedCount,
+              structuredReviewCount: finalCount,
+            },
+          );
+        }
+      }
+      if (visibleCountGap !== null) {
+        this.#db
+          .prepare(
+            `INSERT INTO visible_count_discrepancy_attestations (
+               run_id, contract_version, contract_kind, property_key,
+               booking_hotel_id, visible_review_count,
+               structured_review_count, gap_count, attested_at_utc
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            runId,
+            visibleCountGap.contractVersion,
+            visibleCountGap.contractKind,
+            visibleCountGap.propertyKey,
+            visibleCountGap.bookingHotelId,
+            visibleCountGap.visibleReviewCount,
+            visibleCountGap.structuredReviewCount,
+            visibleCountGap.gapCount,
+            nowIso(),
+          );
+      }
       const ratingScoresJson =
         snapshot.ratingScores == null
           ? null
@@ -2962,6 +3066,7 @@ export class ReviewStorage {
           nowIso(),
           runId,
         );
+      this.#requireSnapshotCountEvidence(runId);
       this.#fault("finalize:before-commit");
       return this.getRun(runId);
     });
@@ -3030,6 +3135,7 @@ export class ReviewStorage {
       existingRun.status === "succeeded" &&
       existingPublication?.last_successful_run_id === runId
     ) {
+      this.#requireSnapshotCountEvidence(runId);
       if (existingRun.complete_inventory === 1) {
         this.#requireFullInventoryAttestation(
           runId,
@@ -3051,6 +3157,7 @@ export class ReviewStorage {
           "RUN_NOT_READY",
         );
       }
+      this.#requireSnapshotCountEvidence(runId);
       if (run.mode === "canary") {
         throw new StorageError(
           "Canary runs are observations and cannot be published",
@@ -3518,6 +3625,122 @@ export class ReviewStorage {
       countEvidenceSha256: row.count_evidence_sha256,
       attestedAtUtc: row.attested_at_utc,
     };
+  }
+
+  getVisibleCountDiscrepancyAttestation(runId) {
+    const row = this.#db
+      .prepare(
+        `SELECT *
+           FROM visible_count_discrepancy_attestations
+          WHERE run_id = ?`,
+      )
+      .get(runId);
+    if (!row) return null;
+    return {
+      contractVersion: row.contract_version,
+      contractKind: row.contract_kind,
+      propertyKey: row.property_key,
+      bookingHotelId: row.booking_hotel_id,
+      visibleReviewCount: row.visible_review_count,
+      structuredReviewCount: row.structured_review_count,
+      gapCount: row.gap_count,
+      attestedAtUtc: row.attested_at_utc,
+    };
+  }
+
+  #requireSnapshotCountEvidence(runId) {
+    const run = this.getRun(runId);
+    const snapshot = this.getSnapshot(runId);
+    if (!run || !snapshot) {
+      throw new StorageError(
+        "Published count snapshot evidence is missing",
+        "SNAPSHOT_COUNT_EVIDENCE_MISSING",
+      );
+    }
+    const identity = this.#db
+      .prepare(
+        `SELECT property_key, booking_hotel_id
+           FROM properties
+          WHERE property_id = ?`,
+      )
+      .get(run.property_id);
+    const structuredGap =
+      this.getSourceDiscrepancyAttestation(runId);
+    const visibleGap =
+      this.getVisibleCountDiscrepancyAttestation(runId);
+    if (
+      snapshot.structured_review_count !== run.source_count_final
+    ) {
+      throw new StorageError(
+        "Snapshot structured count does not match the run",
+        "SNAPSHOT_COUNT_EVIDENCE_MISMATCH",
+      );
+    }
+    if (snapshot.displayed_review_count === null) {
+      if (structuredGap !== null || visibleGap !== null) {
+        throw new StorageError(
+          "A snapshot without a visible count cannot carry discrepancy evidence",
+          "SNAPSHOT_COUNT_EVIDENCE_MISMATCH",
+        );
+      }
+      return true;
+    }
+    if (
+      snapshot.displayed_review_count ===
+      snapshot.structured_review_count
+    ) {
+      if (structuredGap !== null || visibleGap !== null) {
+        throw new StorageError(
+          "An exact-count snapshot cannot carry discrepancy evidence",
+          "SNAPSHOT_COUNT_EVIDENCE_MISMATCH",
+        );
+      }
+      return true;
+    }
+    if (structuredGap !== null) {
+      if (
+        visibleGap !== null ||
+        structuredGap.propertyKey !== identity?.property_key ||
+        structuredGap.bookingHotelId !== identity?.booking_hotel_id ||
+        structuredGap.advertisedReviewCount !==
+          snapshot.displayed_review_count ||
+        structuredGap.retrievableReviewCount !==
+          snapshot.structured_review_count
+      ) {
+        throw new StorageError(
+          "Structured source-gap evidence does not match the snapshot",
+          "SNAPSHOT_COUNT_EVIDENCE_MISMATCH",
+        );
+      }
+      return true;
+    }
+    const expected = identifyVisibleCountGap({
+      propertyKey: identity?.property_key,
+      bookingHotelId: identity?.booking_hotel_id,
+      visibleReviewCount: snapshot.displayed_review_count,
+      structuredReviewCount: snapshot.structured_review_count,
+    });
+    const observed = safeVisibleCountGap(visibleGap);
+    if (
+      expected === null ||
+      observed === null ||
+      canonicalJson(expected) !==
+        canonicalJson({
+          contractKind: observed.contractKind,
+          contractVersion: observed.contractVersion,
+          propertyKey: observed.propertyKey,
+          bookingHotelId: observed.bookingHotelId,
+          visibleReviewCount: observed.visibleReviewCount,
+          structuredReviewCount: observed.structuredReviewCount,
+          gapCount: observed.gapCount,
+        })
+    ) {
+      throw new StorageError(
+        "Visible count-gap evidence does not match the snapshot",
+        "SNAPSHOT_COUNT_EVIDENCE_MISMATCH",
+      );
+    }
+    return true;
   }
 
   getPageCountEvidence(runId) {

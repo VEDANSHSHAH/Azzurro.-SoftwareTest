@@ -14,6 +14,10 @@ import {
   assertSourceGap,
   safeSourceDiscrepancyEvidence,
 } from "./source-discrepancy.mjs";
+import {
+  safeVisibleCountGap,
+  VISIBLE_COUNT_GAP_CONTRACT,
+} from "./visible-count-discrepancy.mjs";
 
 export const DASHBOARD_CONTRACT_VERSION = 1;
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
@@ -380,6 +384,17 @@ function validatePropertyEvidence(property, presentCount) {
   const attestationPresent =
     property.discrepancy_contract_kind != null ||
     property.discrepancy_contract_version != null;
+  const visibleAttestationPresent =
+    property.visible_gap_contract_kind != null ||
+    property.visible_gap_contract_version != null;
+  if (attestationPresent && visibleAttestationPresent) {
+    return {
+      status: "evidence-error",
+      sourceDiscrepancy: null,
+      evidenceError:
+        "Conflicting count-discrepancy attestations are stored for this publication.",
+    };
+  }
   if (attestationPresent) {
     try {
       const advertisedScoreBuckets = parseJson(
@@ -442,25 +457,72 @@ function validatePropertyEvidence(property, presentCount) {
     }
   }
 
-  const expected = property.displayed_review_count;
-  const exactCounts =
-    expected != null &&
-    property.source_count_final === expected &&
-    property.structured_review_count === expected &&
-    property.displayed_review_count === expected &&
-    presentCount === expected;
-  return exactCounts
-    ? {
-        status: "verified",
-        sourceDiscrepancy: null,
-        evidenceError: null,
-      }
-    : {
+  const structuredCount = property.structured_review_count;
+  const structuredCountsMatch =
+    Number.isSafeInteger(structuredCount) &&
+    property.source_count_final === structuredCount &&
+    presentCount === structuredCount;
+  if (
+    structuredCountsMatch &&
+    property.displayed_review_count === structuredCount
+  ) {
+    return {
+      status: "verified",
+      sourceDiscrepancy: null,
+      evidenceError: null,
+    };
+  }
+
+  const visibleCountGap =
+    structuredCountsMatch && visibleAttestationPresent
+      ? safeVisibleCountGap({
+          contractKind: property.visible_gap_contract_kind,
+          contractVersion: property.visible_gap_contract_version,
+          propertyKey: property.visible_gap_property_key,
+          bookingHotelId: property.visible_gap_booking_hotel_id,
+          visibleReviewCount:
+            property.visible_gap_visible_review_count,
+          structuredReviewCount:
+            property.visible_gap_structured_review_count,
+          gapCount: property.visible_gap_count,
+        })
+      : null;
+  if (visibleCountGap !== null) {
+    if (
+      property.property_key !== visibleCountGap.propertyKey ||
+      property.booking_hotel_id !== visibleCountGap.bookingHotelId ||
+      property.displayed_review_count !==
+        visibleCountGap.visibleReviewCount ||
+      structuredCount !== visibleCountGap.structuredReviewCount
+    ) {
+      return {
         status: "evidence-error",
         sourceDiscrepancy: null,
         evidenceError:
-          "Advertised, structured, and published counts do not reconcile, and no valid known-source attestation exists.",
+          "The stored visible-count attestation does not reconcile with the published property counts.",
       };
+    }
+    return {
+      status: "source-gap",
+      sourceDiscrepancy: {
+        sourceDiscrepancyKind: visibleCountGap.contractKind,
+        advertisedReviews: visibleCountGap.visibleReviewCount,
+        retrievableReviews: visibleCountGap.structuredReviewCount,
+        sourceReviewGap: visibleCountGap.gapCount,
+        sourceDiscrepancyScoreBucket: null,
+        advertisedBucketReviews: null,
+        retrievableBucketReviews: null,
+      },
+      evidenceError: null,
+    };
+  }
+
+  return {
+    status: "evidence-error",
+    sourceDiscrepancy: null,
+    evidenceError:
+      "Visible, structured, and published counts do not reconcile, and no valid known-source attestation exists.",
+  };
 }
 
 function normalizeCategoryScores(value) {
@@ -531,7 +593,15 @@ function loadDataset(dbPath, propertiesPath) {
            sda.advertised_score_buckets_json
              AS discrepancy_advertised_score_buckets_json,
            sda.retrievable_score_buckets_json
-             AS discrepancy_retrievable_score_buckets_json
+              AS discrepancy_retrievable_score_buckets_json,
+           vcda.contract_version AS visible_gap_contract_version,
+           vcda.contract_kind AS visible_gap_contract_kind,
+           vcda.property_key AS visible_gap_property_key,
+           vcda.booking_hotel_id AS visible_gap_booking_hotel_id,
+           vcda.visible_review_count AS visible_gap_visible_review_count,
+           vcda.structured_review_count
+             AS visible_gap_structured_review_count,
+           vcda.gap_count AS visible_gap_count
          FROM properties p
          LEFT JOIN property_publications pp
            ON pp.property_id = p.property_id
@@ -543,6 +613,8 @@ function loadDataset(dbPath, propertiesPath) {
             ON fia.run_id = pp.last_successful_run_id
          LEFT JOIN source_discrepancy_attestations sda
            ON sda.run_id = pp.last_successful_run_id
+         LEFT JOIN visible_count_discrepancy_attestations vcda
+           ON vcda.run_id = pp.last_successful_run_id
          WHERE p.enabled = 1
          ORDER BY p.property_id`,
       )
@@ -621,6 +693,13 @@ function loadDataset(dbPath, propertiesPath) {
         discrepancy_retrievable_bucket_count: null,
         discrepancy_advertised_score_buckets_json: null,
         discrepancy_retrievable_score_buckets_json: null,
+        visible_gap_contract_version: null,
+        visible_gap_contract_kind: null,
+        visible_gap_property_key: null,
+        visible_gap_booking_hotel_id: null,
+        visible_gap_visible_review_count: null,
+        visible_gap_structured_review_count: null,
+        visible_gap_count: null,
         categoryScores: [],
         config_visible_review_count: config.visibleReviewCount,
         config_hotel_score: config.hotelScore,
@@ -1021,7 +1100,10 @@ function qualityProperties(dataset) {
         property.status === "verified"
           ? "Advertised count, retrievable inventory, identities, and semantic records agree."
           : property.status === "source-gap"
-            ? `${sourceGap} review is advertised but not returned by Booking's structured list. The exact stored exception evidence passed; no review was invented.`
+            ? property.sourceDiscrepancy?.sourceDiscrepancyKind ===
+              VISIBLE_COUNT_GAP_CONTRACT.contractKind
+              ? `Booking's modal displayed ${advertised}, while its internally consistent structured list returned and published ${retrievable}. The ${sourceGap}-review difference is within Central Sydney's five-review limit; no row was invented.`
+              : `${sourceGap} review${sourceGap === 1 ? " is" : "s are"} advertised but not returned by Booking's structured list. The stored exception evidence passed; no review was invented.`
             : property.status === "evidence-error"
               ? property.evidenceError
             : "No accepted full publication is available yet.",

@@ -207,6 +207,57 @@ test("canary proves property, count, sorters and category stability", async () =
   assert.equal(canary.oldest.cardCount, 10);
 });
 
+test("category stability ignores ancillary Booking benchmark metadata but not displayed scores", async () => {
+  let calls = 0;
+  const metadataOnlyChange = async ({ sorter }) => {
+    calls += 1;
+    const response = body(
+      [card(sorter === "NEWEST_FIRST" ? 21 : 1)],
+      21,
+    );
+    response.data.reviewListFrontend.ratingScores[0].ufiScoresAverage =
+      calls === 1
+        ? { __typename: "UfiScoreAverage", ufiScoreLowerBound: 7, ufiScoreHigherBound: 9 }
+        : { __typename: "UfiScoreAverage", ufiScoreLowerBound: 6, ufiScoreHigherBound: 9 };
+    return raw(response);
+  };
+
+  await runPropertyCanary({
+    property,
+    fetchRaw: metadataOnlyChange,
+    capturedHotelId: 12345,
+    visibleReviewCount: 21,
+  });
+
+  let newestCalls = 0;
+  const displayedScoreChange = authoritativeTransport(21, {
+    transformResponse(response, { sorter }) {
+      if (sorter === "NEWEST_FIRST") newestCalls += 1;
+      response.data.reviewListFrontend.ratingScores[0].value =
+        sorter === "NEWEST_FIRST" && newestCalls > 1 ? 8.4 : 8.5;
+      return response;
+    },
+  });
+
+  const movingCanary = await runPropertyCanary({
+    property,
+    fetchRaw: displayedScoreChange,
+    capturedHotelId: 12345,
+    visibleReviewCount: 21,
+  });
+  await assert.rejects(
+    collectInventoryPhase({
+      property,
+      fetchRaw: displayedScoreChange,
+      sorter: "NEWEST_FIRST",
+      reportedCount: 21,
+      categoryDigest: movingCanary.categoryDigest,
+      firstPage: movingCanary.newest,
+    }),
+    (error) => error.code === "MOVING_CATEGORY_SCORES",
+  );
+});
+
 test("authoritative canary requires the full current count evidence profile", async () => {
   const canary = await runPropertyCanary({
     property,
@@ -664,6 +715,47 @@ test("wrong configured property ID and visible count are rejected", async () => 
     }),
     /Visible modal count/,
   );
+});
+
+test("Central alone accepts a positive visible-to-structured gap up to five", async () => {
+  const centralProperty = {
+    key: "central_sydney",
+    hotelId: 9888182,
+  };
+  const accepted = await runPropertyCanary({
+    property: centralProperty,
+    fetchRaw: authoritativeTransport(2),
+    capturedHotelId: 9888182,
+    visibleReviewCount: 4,
+    requireAuthoritativeEvidence: true,
+  });
+  assert.equal(accepted.reviewsCount, 2);
+  assert.equal(accepted.visibleCountDiscrepancy.gapCount, 2);
+
+  await runPropertyCanary({
+    property: centralProperty,
+    fetchRaw: authoritativeTransport(2),
+    capturedHotelId: 9888182,
+    visibleReviewCount: 7,
+    requireAuthoritativeEvidence: true,
+  });
+
+  for (const [candidateProperty, visibleReviewCount] of [
+    [centralProperty, 8],
+    [centralProperty, 1],
+    [property, 4],
+  ]) {
+    await assert.rejects(
+      runPropertyCanary({
+        property: candidateProperty,
+        fetchRaw: authoritativeTransport(2),
+        capturedHotelId: candidateProperty.hotelId,
+        visibleReviewCount,
+        requireAuthoritativeEvidence: true,
+      }),
+      (error) => error.code === "VISIBLE_COUNT_MISMATCH",
+    );
+  }
 });
 
 test("incremental scan covers new reviews plus two known old pages", async () => {
